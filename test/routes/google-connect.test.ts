@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { action as connect } from "../../app/routes/app.google.connect";
 import { loader as callback } from "../../app/routes/google.callback";
 import { loader as setup } from "../../app/routes/app._index";
+import { loader as admin } from "../../app/routes/app";
 import {
   loader as calendars,
   action as selectCalendar,
@@ -13,6 +14,7 @@ import {
   routeArgs,
   consentState,
   callbackRequest,
+  resourceForShop,
 } from "../helpers";
 
 beforeEach(() => installShop());
@@ -49,6 +51,51 @@ test("Google callback connects the authenticated Shop and never returns its cred
     google: { status: "connected" },
   });
   expect(await response.text()).not.toContain("google_refresh_token");
+});
+
+test("opening the admin detects revoked Google access before any customer requests Slots", async () => {
+  fakeGoogle.grant();
+  await callback(callbackRequest(await consentState()));
+  fakeGoogle.tokens.clear();
+  fakeGoogle.refreshTokens.clear();
+  expect(await admin(routeArgs(adminRequest("/app/services")))).toMatchObject({
+    googleStatus: "disconnected",
+  });
+});
+
+test("calendar loading returns a reconnect state instead of breaking admin setup after revocation", async () => {
+  fakeGoogle.grant();
+  await callback(callbackRequest(await consentState()));
+  fakeGoogle.tokens.clear();
+  fakeGoogle.refreshTokens.clear();
+  const load = () =>
+    calendars(routeArgs(adminRequest("/app/google/calendars")));
+  expect(await (await load()).json()).toEqual({
+    calendars: [],
+    disconnected: true,
+  });
+  expect(await (await load()).json()).toEqual({
+    calendars: [],
+    disconnected: true,
+  });
+});
+
+test("revocation during Resource selection returns reconnect state and preserves the Resource", async () => {
+  const resource = await resourceForShop();
+  fakeGoogle.tokens.clear();
+  fakeGoogle.refreshTokens.clear();
+  const response = await selectCalendar(
+    routeArgs(
+      adminRequest("/app/google/calendars", {
+        method: "POST",
+        body: new URLSearchParams({ calendarId: "merchant@example.com" }),
+      }),
+    ),
+  );
+  expect(await response.json()).toEqual({ disconnected: true });
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({ resource });
 });
 
 test("partial Google consent does not connect a Shop", async () => {

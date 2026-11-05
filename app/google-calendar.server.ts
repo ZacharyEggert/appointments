@@ -3,6 +3,21 @@ import prisma from "./db.server";
 import { decryptToken, encryptToken } from "./token-encryption.server";
 import type { Interval } from "./availability";
 
+export class GoogleDisconnectedError extends Error {
+  constructor() {
+    super("Google is disconnected. Please reconnect.");
+  }
+}
+
+async function disconnected(shop: string, refreshToken: string) {
+  // A response from an old connection must not disconnect a new consent grant.
+  await prisma.googleConnection.updateMany({
+    where: { shop, refreshToken },
+    data: { status: "disconnected" },
+  });
+  throw new GoogleDisconnectedError();
+}
+
 export interface GoogleEvent {
   id: string;
   created: string;
@@ -18,15 +33,13 @@ export async function writeGoogleEvent(
   body: Record<string, unknown>,
   eventId?: string,
 ): Promise<GoogleEvent> {
-  const token = await accessTokenFor(shop);
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ""}`,
   );
   url.searchParams.set("sendUpdates", eventId ? "all" : "none");
-  const response = await fetch(url, {
+  const response = await googleFetch(shop, url, {
     method: eventId ? "PATCH" : "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -41,7 +54,6 @@ export async function overlappingGoogleEvents(
   from: Date,
   to: Date,
 ) {
-  const token = await accessTokenFor(shop);
   const events: GoogleEvent[] = [];
   let pageToken: string | undefined;
   do {
@@ -55,9 +67,7 @@ export async function overlappingGoogleEvents(
       showDeleted: "false",
       ...(pageToken ? { pageToken } : {}),
     }).toString();
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await googleFetch(shop, url);
     if (!response.ok) throw new Error("Google event lookup failed");
     const result = (await response.json()) as {
       items?: GoogleEvent[];
@@ -76,13 +86,10 @@ export async function deleteGoogleEvent(
   calendarId: string,
   eventId: string,
 ) {
-  const token = await accessTokenFor(shop);
-  const response = await fetch(
+  const response = await googleFetch(
+    shop,
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    },
+    { method: "DELETE" },
   );
   if (!response.ok && response.status !== 404 && response.status !== 410)
     throw new Error("Google event cleanup failed");
@@ -94,13 +101,12 @@ export async function googleBusy(
   from: Date,
   to: Date,
 ): Promise<Interval[]> {
-  const accessToken = await accessTokenFor(shop);
-  const response = await fetch(
+  const response = await googleFetch(
+    shop,
     "https://www.googleapis.com/calendar/v3/freeBusy",
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -270,15 +276,16 @@ export interface CalendarEntry {
   primary?: boolean;
 }
 
-async function accessTokenFor(shop: string) {
+async function accessTokenFor(shop: string, refresh = false) {
   const connection = await prisma.googleConnection.findUnique({
     where: { shop },
   });
-  if (!connection || connection.status !== "connected") {
+  if (!connection) {
     throw new Response("Connect Google to choose a calendar", { status: 409 });
   }
-  if (connection.expiresAt.getTime() > Date.now() + 60_000)
-    return decryptToken(connection.accessToken);
+  if (connection.status !== "connected") throw new GoogleDisconnectedError();
+  if (!refresh && connection.expiresAt.getTime() > Date.now() + 60_000)
+    return { token: decryptToken(connection.accessToken), connection };
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     body: new URLSearchParams({
@@ -288,17 +295,23 @@ async function accessTokenFor(shop: string) {
       grant_type: "refresh_token",
     }),
   });
-  if (!response.ok)
+  if (!response.ok) {
+    if (response.status === 400) {
+      const error = (await response.json()) as { error?: string };
+      if (error.error === "invalid_grant")
+        await disconnected(shop, connection.refreshToken);
+    }
     throw new Response(
       "Could not refresh Google access. Please reconnect or try again.",
       { status: 502 },
     );
+  }
   const token = (await response.json()) as {
     access_token: string;
     expires_in: number;
     refresh_token?: string;
   };
-  await prisma.googleConnection.update({
+  const updated = await prisma.googleConnection.update({
     where: { shop },
     data: {
       accessToken: encryptToken(token.access_token),
@@ -308,13 +321,47 @@ async function accessTokenFor(shop: string) {
         : {}),
     },
   });
-  return token.access_token;
+  return { token: token.access_token, connection: updated };
+}
+
+async function googleFetch(
+  shop: string,
+  url: string | URL,
+  init: RequestInit = {},
+) {
+  let credentials = await accessTokenFor(shop);
+  const send = () => {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${credentials.token}`);
+    return fetch(url, { ...init, headers });
+  };
+  let response = await send();
+  if (response.status === 401) {
+    credentials = await accessTokenFor(shop, true);
+    response = await send();
+    if (response.status === 401)
+      await disconnected(shop, credentials.connection.refreshToken);
+  }
+  if (response.status === 403) {
+    const body = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as {
+      error?: { errors?: { reason?: string }[] };
+    } | null;
+    if (
+      body?.error?.errors?.some(
+        (error) => error.reason === "insufficientPermissions",
+      )
+    )
+      await disconnected(shop, credentials.connection.refreshToken);
+  }
+  return response;
 }
 
 export async function listGoogleCalendars(
   shop: string,
 ): Promise<CalendarEntry[]> {
-  const accessToken = await accessTokenFor(shop);
   const calendars: CalendarEntry[] = [];
   let pageToken: string | undefined;
   do {
@@ -327,9 +374,7 @@ export async function listGoogleCalendars(
       showHidden: "false",
       ...(pageToken ? { pageToken } : {}),
     }).toString();
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const response = await googleFetch(shop, url);
     if (!response.ok)
       throw new Response("Could not load Google calendars. Please try again.", {
         status: 502,

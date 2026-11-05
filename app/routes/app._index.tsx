@@ -1,10 +1,11 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useRouteLoaderData } from "react-router";
 import { useEffect, useState } from "react";
 import type { Resource } from "@prisma/client";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import type { CalendarEntry } from "../google-calendar.server";
+import type { loader as appLoader } from "./app";
 
 interface SetupData {
   shop: { name: string; ianaTimezone: string };
@@ -61,15 +62,27 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 export default function Index() {
   const { shop, google, resource, themeEditorUrl } = useLoaderData<SetupData>();
+  const app = useRouteLoaderData<typeof appLoader>("routes/app");
   const connect = useFetcher<{ authorizationUrl: string }>();
-  const calendarList = useFetcher<{ calendars: CalendarEntry[] }>();
-  const selection = useFetcher<{ resource: Resource }>();
+  const calendarList = useFetcher<{
+    calendars: CalendarEntry[];
+    disconnected?: boolean;
+  }>();
+  const selection = useFetcher<{
+    resource?: Resource;
+    disconnected?: boolean;
+  }>();
   const [calendarId, setCalendarId] = useState(resource?.calendarId ?? "");
+  const disconnected =
+    calendarList.data?.disconnected || selection.data?.disconnected;
+  const googleStatus = disconnected
+    ? "disconnected"
+    : (app?.googleStatus ?? google?.status);
   const loadCalendars = calendarList.load;
   useEffect(() => {
-    if (google?.status === "connected")
+    if (googleStatus === "connected")
       void loadCalendars("/app/google/calendars");
-  }, [google?.status, loadCalendars]);
+  }, [googleStatus, loadCalendars]);
 
   return (
     <s-page heading="Appointments">
@@ -80,10 +93,17 @@ export default function Index() {
         <s-paragraph>Shop timezone: {shop.ianaTimezone}</s-paragraph>
       </s-section>
       <s-section heading="Google account">
+        {disconnected && app?.googleStatus !== "disconnected" && (
+          <s-banner heading="Reconnect Google" tone="warning">
+            Booking unavailable. Reconnect Google to restore Bookings.
+          </s-banner>
+        )}
         <s-paragraph>
-          {google?.status === "connected"
+          {googleStatus === "connected"
             ? "Google is connected."
-            : "Connect Google to get started."}
+            : googleStatus === "disconnected"
+              ? "Google is disconnected. Please reconnect."
+              : "Connect Google to get started."}
         </s-paragraph>
         <connect.Form method="post" action="/app/google/connect">
           <s-button type="submit" loading={connect.state !== "idle"}>
@@ -96,7 +116,7 @@ export default function Index() {
           </s-link>
         )}
       </s-section>
-      {google?.status === "connected" && (
+      {googleStatus === "connected" && (
         <s-section heading="Resource">
           {resource && (
             <s-paragraph>
@@ -138,7 +158,9 @@ export default function Index() {
           ) : (
             <s-paragraph>Loading calendars…</s-paragraph>
           )}
-          {selection.data && <s-paragraph>Resource saved.</s-paragraph>}
+          {selection.data?.resource && (
+            <s-paragraph>Resource saved.</s-paragraph>
+          )}
         </s-section>
       )}
       {themeEditorUrl && (
