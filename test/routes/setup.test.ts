@@ -32,7 +32,15 @@ test("setup deep-links the theme editor to the Service page template with the bo
     ),
   );
   const response = await loader(routeArgs(adminRequest("/app")));
-  const { themeEditorUrl } = await response.json();
+  const { themeEditorUrl, templateSetupUrl } = await response.json();
+  // Step 1: the template must exist before a block can be deep-linked into it.
+  const setup = new URL(templateSetupUrl);
+  expect(setup.origin + setup.pathname).toBe(
+    "https://test-shop.myshopify.com/admin/themes/current/editor",
+  );
+  expect(Object.fromEntries(setup.searchParams)).toEqual({
+    previewPath: "/pages/services/service-1",
+  });
   const url = new URL(themeEditorUrl);
   expect(url.origin + url.pathname).toBe(
     "https://test-shop.myshopify.com/admin/themes/current/editor",

@@ -13,6 +13,7 @@ interface SetupData {
   resource: Resource | null;
   serviceDefinition: { id: string; type: string } | null;
   themeEditorUrl: string | null;
+  templateSetupUrl: string | null;
 }
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
@@ -20,12 +21,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
     `query ShopSetup {
       shop { name ianaTimezone }
       metaobjectDefinitionByType(type: "$app:service") { id type }
+      metaobjects(type: "$app:service", first: 1) { nodes { handle } }
     }`,
   );
   const result = (await response.json()) as {
     data?: {
       shop: SetupData["shop"];
       metaobjectDefinitionByType: SetupData["serviceDefinition"];
+      metaobjects?: { nodes: { handle: string }[] };
     };
     errors?: unknown;
   };
@@ -41,8 +44,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
     orderBy: { id: "asc" },
   });
   const definition = result.data.metaobjectDefinitionByType;
+  const editor = `https://${session.shop}/admin/themes/current/editor`;
+  // Apps can't create theme templates, so the merchant creates it first by
+  // previewing a Service page in the editor; only then can a block be deep-linked.
+  const firstService = result.data.metaobjects?.nodes[0]?.handle;
+  const templateSetupUrl = firstService
+    ? `${editor}?` +
+      new URLSearchParams({ previewPath: `/pages/services/${firstService}` })
+    : null;
   const themeEditorUrl = definition
-    ? `https://${session.shop}/admin/themes/current/editor?` +
+    ? `${editor}?` +
       new URLSearchParams({
         template: `metaobject/${definition.type}`,
         addAppBlockId: `${process.env.SHOPIFY_API_KEY}/book_service`,
@@ -52,6 +63,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return Response.json(
     {
       themeEditorUrl,
+      templateSetupUrl,
       shop: result.data.shop,
       google,
       resource,
@@ -61,7 +73,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   );
 }
 export default function Index() {
-  const { shop, google, resource, themeEditorUrl } = useLoaderData<SetupData>();
+  const { shop, google, resource, themeEditorUrl, templateSetupUrl } =
+    useLoaderData<SetupData>();
   const app = useRouteLoaderData<typeof appLoader>("routes/app");
   const connect = useFetcher<{ authorizationUrl: string }>();
   const calendarList = useFetcher<{
@@ -166,12 +179,27 @@ export default function Index() {
       {themeEditorUrl && (
         <s-section heading="Service pages">
           <s-paragraph>
-            One-time setup: create the Service page template and add the booking
-            block to it.
+            One-time setup. Each Service gets its own storefront page once your
+            theme has a Service page template.
           </s-paragraph>
-          <s-link href={themeEditorUrl} target="_blank">
-            Open theme editor
-          </s-link>
+          <s-ordered-list>
+            <s-list-item>
+              {templateSetupUrl ? (
+                <s-link href={templateSetupUrl} target="_blank">
+                  Create the Service page template
+                </s-link>
+              ) : (
+                "Create a Service first, then come back to create the template"
+              )}
+              : in the theme editor, choose Create template, then Save.
+            </s-list-item>
+            <s-list-item>
+              <s-link href={themeEditorUrl} target="_blank">
+                Add the booking block
+              </s-link>{" "}
+              to that template, then Save.
+            </s-list-item>
+          </s-ordered-list>
         </s-section>
       )}
     </s-page>

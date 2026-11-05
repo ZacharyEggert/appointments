@@ -104,6 +104,11 @@ export const shopifyHandlers = [
                       : null),
                 }
               : {}),
+            metaobjects: {
+              nodes: (fakeShopify.services.get(String(params.shop)) ?? [])
+                .slice(0, 1)
+                .map(({ handle }) => ({ handle })),
+            },
           },
         });
       }
