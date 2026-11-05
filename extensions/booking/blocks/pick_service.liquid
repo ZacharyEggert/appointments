@@ -1,5 +1,7 @@
 <appointments-widget
   class="appt-widget"
+  data-customer-name="{{ customer.name | escape }}"
+  data-customer-email="{{ customer.email | escape }}"
   data-proxy="{{ block.settings.proxy_path | default: '/apps/appointments' | escape }}"
   data-services="{{ block.settings.services | escape }}"
 >

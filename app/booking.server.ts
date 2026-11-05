@@ -17,11 +17,19 @@ export interface Guest {
   notes: string;
 }
 
+export interface SubjectProduct {
+  id: string;
+  title: string;
+}
+
 export async function book(
   shop: string,
   service: Service,
   slotStart: Date,
   customer: Guest,
+  customerId?: string,
+
+  subject?: SubjectProduct,
 ) {
   const resource = await prisma.resource.findFirst({
     where: { id: service.resourceId, shop },
@@ -56,7 +64,7 @@ export async function book(
         const event = await writeGoogleEvent(shop, resource.calendarId, {
           summary: `${service.name} – ${customer.name}`,
           transparency: service.blocking ? "opaque" : "transparent",
-          description: `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}`,
+          description: `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}${subject ? `\nProduct: ${subject.title}` : ""}`,
           start: {
             dateTime: slotStart.toISOString(),
             timeZone: resource.timeZone,
@@ -73,6 +81,9 @@ export async function book(
               shop,
               serviceId: service.id,
               emailHash: emailHash(customer.email),
+              ...(customerId && { customerId }),
+
+              ...(subject && { subjectProductId: subject.id }),
             },
           },
         });
