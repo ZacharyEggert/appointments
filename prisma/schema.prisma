@@ -71,3 +71,13 @@ model ShopSettings {
   minNoticeMinutes     Int    @default(0)
   maxAdvanceDays       Int    @default(30)
 }
+
+model BookingRateLimit {
+  shop      String
+  key       String
+  count     Int
+  expiresAt DateTime
+
+  @@id([shop, key])
+  @@index([shop, expiresAt])
+}
