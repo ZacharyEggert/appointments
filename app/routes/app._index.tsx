@@ -11,6 +11,7 @@ interface SetupData {
   google: { status: string } | null;
   resource: Resource | null;
   serviceDefinition: { id: string; type: string } | null;
+  themeEditorUrl: string | null;
 }
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
@@ -38,8 +39,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
     where: { shop: session.shop },
     orderBy: { id: "asc" },
   });
+  const definition = result.data.metaobjectDefinitionByType;
+  const themeEditorUrl = definition
+    ? `https://${session.shop}/admin/themes/current/editor?` +
+      new URLSearchParams({
+        template: `metaobject/${definition.type}`,
+        addAppBlockId: `${process.env.SHOPIFY_API_KEY}/book_service`,
+        target: "newAppsSection",
+      })
+    : null;
   return Response.json(
     {
+      themeEditorUrl,
       shop: result.data.shop,
       google,
       resource,
@@ -49,7 +60,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   );
 }
 export default function Index() {
-  const { shop, google, resource } = useLoaderData<SetupData>();
+  const { shop, google, resource, themeEditorUrl } = useLoaderData<SetupData>();
   const connect = useFetcher<{ authorizationUrl: string }>();
   const calendarList = useFetcher<{ calendars: CalendarEntry[] }>();
   const selection = useFetcher<{ resource: Resource }>();
@@ -128,6 +139,17 @@ export default function Index() {
             <s-paragraph>Loading calendars…</s-paragraph>
           )}
           {selection.data && <s-paragraph>Resource saved.</s-paragraph>}
+        </s-section>
+      )}
+      {themeEditorUrl && (
+        <s-section heading="Service pages">
+          <s-paragraph>
+            One-time setup: create the Service page template and add the booking
+            block to it.
+          </s-paragraph>
+          <s-link href={themeEditorUrl} target="_blank">
+            Open theme editor
+          </s-link>
         </s-section>
       )}
     </s-page>
