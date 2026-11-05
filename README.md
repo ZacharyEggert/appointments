@@ -64,11 +64,20 @@ Issue #12 uses `appointments_test_12` with that override. Generate Prisma Client
 
 The harness accepts only database names matching `appointments_test` or `appointments_test_<number>` and ignores the development `DATABASE_URL`. It applies migrations once per run and truncates application tables before each test. Do not put non-test data there. Test files run serially; separate worktrees can run in parallel with separate databases. Prisma's test migration process uses `node_modules/.cache` if `XDG_CACHE_HOME` is unset, keeping the engine cache writable in restricted workspaces.
 
-The agreed seam is the route loader/action called with real HTTP Requests. Tests use real Shopify JWT verification and Prisma session storage. MSW intercepts Shopify Admin GraphQL and Google's token/calendar-list endpoints, with stateful grants, issued access/refresh tokens, account calendar lists, and pagination. Unhandled network traffic fails. MSW starts before importing the Shopify adapter, which captures `fetch` during initialization. Extend these same fakes and `test/helpers.ts` for later tickets rather than adding another harness. Event operations and the remaining Google client are subsequent work.
+The agreed seam is the route loader/action called with real HTTP Requests. Tests use real Shopify JWT/HMAC verification and Prisma session storage. MSW intercepts Shopify Admin GraphQL and Google's token/revocation/calendar-list endpoints, with stateful grants, issued access/refresh tokens, account calendar lists, and pagination. Unhandled network traffic fails. MSW starts before importing the Shopify adapter, which captures `fetch` during initialization. Extend these same fakes and `test/helpers.ts` for later tickets rather than adding another harness. Event operations and the remaining Google client are subsequent work.
 
 The route scenarios cover consent, scope rejection, callback persistence, calendar pagination/filtering, Resource selection, refresh after reconnect, expired/tampered/replayed state, Shop isolation, and concurrent selection. They do not query database state for assertions.
 
 Opening hours/Services scenarios cover weekly split shifts, closed days, validation, shop defaults and clearing overrides, all Service fields and lifecycle operations, definition reinstall/concurrency, pagination, Shopify errors, and Shop/type isolation. They extend the same stateful Shopify MSW fake and authenticated route helpers.
+Lifecycle scenarios also cover invalid/missing/tampered webhook HMACs, duplicate deliveries, sessionless cleanup, Shop isolation, Google revocation failures/timeouts, unchanged calendar events, and Service definition lookup after reinstall. Issue #11 uses `TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_11`.
+
+## Shop lifecycle
+
+`app/uninstalled` and `shop/redact` use Shopify's webhook authentication, then revoke any saved Google refresh token and delete that Shop's Google connection, pending OAuth states, Resources, and Shopify sessions in one transaction. No Google Calendar event API is called. Revocation is best-effort with a 1.5-second timeout; failures are logged without credentials, and local deletion continues. Already-invalid tokens are accepted. Database deletion failures propagate so Shopify can retry instead of acknowledging incomplete cleanup. When adding Shop-owned tables, extend `app/shop-lifecycle.server.ts` and its route scenarios to delete those rows too.
+
+Admin setup queries `metaobjectDefinitionByType(type: "$app:service")` each time and returns the current definition ID/type (or null); no definition GID is persisted. Definition creation belongs to #12. Google must be reconnected after reinstall.
+
+Cleanup follows the authenticated Shop domain, without the research notes' optional session-presence guard: an existing session alone does not identify a new installation. A delayed lifecycle delivery after reinstall can therefore clear the new local configuration; installation-generation tracking is outside this ticket.
 
 ## Runtime
 
@@ -76,4 +85,4 @@ The Dockerfile builds with Node 26 and the frozen pnpm lockfile. Its start comma
 
 ## Remaining verification
 
-Issue #2's manual criterion is installation on a Shopify dev store and loading the embedded admin. Also verify the top-level Google consent round trip using real credentials. Shopify app linking, Google consent setup/verification, and production hosting require account access. Compliance subscriptions/full uninstall cleanup belong to #11/#17; the retained template uninstall handler currently deletes Shopify sessions only.
+Issue #2's manual criterion is installation on a Shopify dev store and loading the embedded admin. Also verify the top-level Google consent round trip using real credentials. Shopify app linking, Google consent setup/verification, and production hosting require account access. Lifecycle subscriptions are configured in `shopify.app.toml` and take effect when the app configuration is deployed. Customer compliance subscriptions/handlers belong to #17. Issue #11 has no manual-only acceptance criteria; live webhook delivery and Shopify's retention/reattachment of Service entries on reinstall remain dev-store smoke checks.

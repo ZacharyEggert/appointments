@@ -25,7 +25,11 @@ api_version = "2026-10"
   topics = ["app/scopes_update"]
   uri = "/webhooks/app/scopes_update"
 
-# Mandatory compliance subscriptions and handlers are implemented in #11/#17.
+  [[webhooks.subscriptions]]
+  compliance_topics = ["shop/redact"]
+  uri = "/webhooks/shop/redact"
+
+# Customer compliance subscriptions and handlers are implemented in #17.
 
 [app_proxy]
 url = "/proxy"
