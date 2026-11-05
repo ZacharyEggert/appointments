@@ -52,6 +52,7 @@ export const shopifyHandlers = [
         query: string;
         variables: {
           after?: string;
+          handle?: { type: string; handle: string };
           id: string;
           definition: Definition;
           metaobject: {
@@ -62,6 +63,21 @@ export const shopifyHandlers = [
         };
       };
       const shop = String(params.shop);
+      if (query.includes("query SlotService(")) {
+        const definition = fakeShopify.definitions.get(shop);
+        return HttpResponse.json({
+          data: {
+            shop: fakeShopify.shop,
+            metaobjectDefinitionByType: definition
+              ? { ...definition, type: "app--12345--service" }
+              : null,
+            service:
+              fakeShopify.services
+                .get(shop)
+                ?.find((s) => s.handle === variables.handle?.handle) ?? null,
+          },
+        });
+      }
       if (query.includes("query ShopSetup")) {
         return HttpResponse.json({
           data: {

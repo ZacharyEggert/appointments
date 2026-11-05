@@ -60,16 +60,28 @@ Tests use real local Postgres, defaulting to `postgresql://zachary@localhost:543
 TEST_DATABASE_URL=postgresql://your_user@localhost:5432/appointments_test_3 pnpm test
 ```
 
-Issue #12 uses `appointments_test_12` with that override. Generate Prisma Client after installing dependencies or changing the schema. In a restricted workspace, use `XDG_CACHE_HOME="$PWD/node_modules/.cache" pnpm prisma generate`.
+Issue #3 uses `appointments_test_3`; issue #12 uses `appointments_test_12` with that override. Generate Prisma Client after installing dependencies or changing the schema. In a restricted workspace, use `XDG_CACHE_HOME="$PWD/node_modules/.cache" pnpm prisma generate`.
 
 The harness accepts only database names matching `appointments_test` or `appointments_test_<number>` and ignores the development `DATABASE_URL`. It applies migrations once per run and truncates application tables before each test. Do not put non-test data there. Test files run serially; separate worktrees can run in parallel with separate databases. Prisma's test migration process uses `node_modules/.cache` if `XDG_CACHE_HOME` is unset, keeping the engine cache writable in restricted workspaces.
 
-The agreed seam is the route loader/action called with real HTTP Requests. Tests use real Shopify JWT/HMAC verification and Prisma session storage. MSW intercepts Shopify Admin GraphQL and Google's token/revocation/calendar-list endpoints, with stateful grants, issued access/refresh tokens, account calendar lists, and pagination. Unhandled network traffic fails. MSW starts before importing the Shopify adapter, which captures `fetch` during initialization. Extend these same fakes and `test/helpers.ts` for later tickets rather than adding another harness. Event operations and the remaining Google client are subsequent work.
+The agreed seam is the route loader/action called with real HTTP Requests. Tests use real Shopify JWT/HMAC verification and Prisma session storage. MSW intercepts Shopify Admin GraphQL and Google's token/revocation/calendar-list/free-busy endpoints, with stateful grants, issued access/refresh tokens, account calendar lists, events, and pagination. Unhandled network traffic fails. MSW starts before importing the Shopify adapter, which captures `fetch` during initialization. Extend these same fakes and `test/helpers.ts` for later tickets rather than adding another harness. Event API operations and the remaining Google client are subsequent work.
 
 The route scenarios cover consent, scope rejection, callback persistence, calendar pagination/filtering, Resource selection, refresh after reconnect, expired/tampered/replayed state, Shop isolation, and concurrent selection. They do not query database state for assertions.
 
 Opening hours/Services scenarios cover weekly split shifts, closed days, validation, shop defaults and clearing overrides, all Service fields and lifecycle operations, definition reinstall/concurrency, pagination, Shopify errors, and Shop/type isolation. They extend the same stateful Shopify MSW fake and authenticated route helpers.
 Lifecycle scenarios also cover invalid/missing/tampered webhook HMACs, duplicate deliveries, sessionless cleanup, Shop isolation, Google revocation failures/timeouts, unchanged calendar events, and Service definition lookup after reinstall. Issue #11 uses `TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_11`.
+
+## Storefront Slots API
+
+Shopify forwards `/apps/appointments/slots` to `GET /proxy/slots`. Use `service=<Service handle>`, `from=<RFC3339 timestamp>`, and `to=<RFC3339 timestamp>` (URL-encode values). Both timestamps require an explicit `Z` or offset. A request may span at most 31 × 24 hours; fetch longer ranges in batches. For remote Services, pass `timezone=<browser IANA timezone>` (for example, `Intl.DateTimeFormat().resolvedOptions().timeZone`). Without it, display falls back to the shop timezone. In-person Services always return the shop timezone.
+
+The response is `{ "timeZone": "America/Los_Angeles", "slots": [{ "start": "2026-11-09T17:00:00.000Z", "end": "2026-11-09T17:30:00.000Z" }] }`, with `Cache-Control: no-store`. Slot times are UTC instants; `timeZone` is the display timezone. Only complete Slots contained in the requested range are returned. Opening hours use the saved Resource timezone, independently of display timezone, matching the settings UI.
+
+Start intervals are anchored to each Opening hours interval's local start. Duration and buffers use elapsed minutes, and the entire buffered Slot must fit within continuous Opening hours without overlapping Google busy time. Adjacent busy/buffer endpoints may touch. Nonexistent DST starts are omitted; repeated local times are distinct UTC Slots. Minimum notice includes its exact boundary. Maximum advance is an inclusive start-time limit of `now + maxAdvanceDays × 24 hours`; this rolling horizon is independent of DST. Service overrides inherit current shop defaults when empty.
+
+The route uses Shopify's proxy signature/timestamp verifier and the installed Shop's offline session. Unsigned, tampered, stale, malformed, or excessive requests return 400. Unpublished, missing, or wrong-type Services return 404. A missing installation/Resource or failed Google availability lookup returns 503 (`Booking unavailable`); Shopify lookup failures return 502. Google free/busy queries include buffers outside the requested range and check per-calendar errors. Google failures never become an empty busy list.
+
+Tests cover these responses at the route seam, extending the existing network fakes. Pure Availability tests cover split shifts, closed days, midnight, touching busy boundaries, DST gaps, and a half-hour DST jump. The fake excludes transparent/cancelled events from free/busy; a live Google smoke check of transparent-event semantics remains unperformed (ADR-0006). No storefront UI is part of #3.
 
 ## Shop lifecycle
 

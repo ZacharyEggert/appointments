@@ -34,6 +34,36 @@ export function readService(object: Metaobject, defaults: SlotRules) {
 }
 export type Service = ReturnType<typeof readService>;
 
+export async function storefrontService(
+  admin: AdminApiContext,
+  handle: string,
+  defaults: SlotRules,
+) {
+  const result = await graphql<{
+    shop: { ianaTimezone: string };
+    metaobjectDefinitionByType: Definition | null;
+    service: Metaobject | null;
+  }>(
+    admin,
+    `query SlotService($handle: MetaobjectHandleInput!) {
+    shop { ianaTimezone }
+    metaobjectDefinitionByType(type: "$app:service") { id type }
+    service: metaobjectByHandle(handle: $handle) { ${serviceSelection} }
+  }`,
+    { handle: { type: "$app:service", handle } },
+  );
+  if (
+    !result.service ||
+    result.service.type !== result.metaobjectDefinitionByType?.type ||
+    result.service.capabilities.publishable.status !== "ACTIVE"
+  )
+    throw new Response("Service not found", { status: 404 });
+  return {
+    service: readService(result.service, defaults),
+    shopTimeZone: result.shop.ianaTimezone,
+  };
+}
+
 export async function listServices(
   admin: AdminApiContext,
   defaults: SlotRules,

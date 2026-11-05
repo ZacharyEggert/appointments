@@ -1,6 +1,49 @@
 import { randomBytes } from "node:crypto";
 import prisma from "./db.server";
 import { decryptToken, encryptToken } from "./token-encryption.server";
+import type { Interval } from "./availability";
+
+export async function googleBusy(
+  shop: string,
+  calendarId: string,
+  from: Date,
+  to: Date,
+): Promise<Interval[]> {
+  const accessToken = await accessTokenFor(shop);
+  const response = await fetch(
+    "https://www.googleapis.com/calendar/v3/freeBusy",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        timeMin: from.toISOString(),
+        timeMax: to.toISOString(),
+        items: [{ id: calendarId }],
+      }),
+    },
+  );
+  if (!response.ok) throw new Response("Booking unavailable", { status: 503 });
+  const result = (await response.json()) as {
+    calendars?: Record<string, { busy?: Interval[]; errors?: unknown[] }>;
+  };
+  const calendar = result.calendars?.[calendarId];
+  if (
+    !Array.isArray(calendar?.busy) ||
+    calendar.errors?.length ||
+    calendar.busy.some(
+      (interval) =>
+        !interval ||
+        !Number.isFinite(Date.parse(interval.start)) ||
+        !Number.isFinite(Date.parse(interval.end)) ||
+        Date.parse(interval.start) >= Date.parse(interval.end),
+    )
+  )
+    throw new Response("Booking unavailable", { status: 503 });
+  return calendar.busy;
+}
 
 export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",

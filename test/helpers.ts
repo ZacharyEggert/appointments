@@ -128,3 +128,27 @@ export function webhookRequest(
     },
   });
 }
+
+export function proxyRequest(
+  path: string,
+  query: Record<string, string> = {},
+  shop = SHOP,
+) {
+  const url = new URL(path, "https://app.test");
+  url.search = new URLSearchParams({
+    ...query,
+    shop,
+    logged_in_customer_id: "",
+    path_prefix: "/apps/appointments",
+    timestamp: String(Math.floor(Date.now() / 1000)),
+  }).toString();
+  const message = [...url.searchParams.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => `${key}=${url.searchParams.getAll(key).join(",")}`)
+    .join("");
+  url.searchParams.set(
+    "signature",
+    createHmac("sha256", "test_secret").update(message).digest("hex"),
+  );
+  return new Request(url);
+}
