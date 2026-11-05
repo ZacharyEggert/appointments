@@ -21,6 +21,7 @@ export default function App() {
   return (
     <div className={styles.index}>
       <div className={styles.content}>
+        <img src="/logo.svg" alt="Appointments logo" width={96} height={96} />
         <h1 className={styles.heading}>Appointments</h1>
         <p className={styles.text}>
           Let customers book your Services through your Google Calendar.
@@ -37,6 +38,9 @@ export default function App() {
             </button>
           </Form>
         )}
+        <p className={styles.text}>
+          <a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Service</a>
+        </p>
       </div>
     </div>
   );
