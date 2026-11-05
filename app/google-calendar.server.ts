@@ -8,6 +8,21 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 ];
 
+export async function revokeGoogleConnection(shop: string) {
+  const connection = await prisma.googleConnection.findUnique({
+    where: { shop },
+  });
+  if (!connection) return;
+  const response = await fetch("https://oauth2.googleapis.com/revoke", {
+    method: "POST",
+    body: new URLSearchParams({ token: decryptToken(connection.refreshToken) }),
+    signal: AbortSignal.timeout(1500),
+  });
+  if (!response.ok && response.status !== 400) {
+    throw new Error("Google token revocation failed");
+  }
+}
+
 function requiredEnv(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name}`);

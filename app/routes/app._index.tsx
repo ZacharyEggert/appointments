@@ -10,14 +10,21 @@ interface SetupData {
   shop: { name: string; ianaTimezone: string };
   google: { status: string } | null;
   resource: Resource | null;
+  serviceDefinition: { id: string; type: string } | null;
 }
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
   const response = await admin.graphql(
-    `query ShopSetup { shop { name ianaTimezone } }`,
+    `query ShopSetup {
+      shop { name ianaTimezone }
+      metaobjectDefinitionByType(type: "$app:service") { id type }
+    }`,
   );
   const result = (await response.json()) as {
-    data?: { shop: SetupData["shop"] };
+    data?: {
+      shop: SetupData["shop"];
+      metaobjectDefinitionByType: SetupData["serviceDefinition"];
+    };
     errors?: unknown;
   };
   if (!result.data?.shop || result.errors) {
@@ -32,7 +39,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
     orderBy: { id: "asc" },
   });
   return Response.json(
-    { shop: result.data.shop, google, resource },
+    {
+      shop: result.data.shop,
+      google,
+      resource,
+      serviceDefinition: result.data.metaobjectDefinitionByType,
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

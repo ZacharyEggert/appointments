@@ -18,10 +18,12 @@ export const fakeGoogle = {
   grants: new Map<string, Grant>(),
   tokens: new Map<string, Grant>(),
   refreshTokens: new Map<string, Grant>(),
+  revocations: [] as string[],
   reset() {
     this.grants.clear();
     this.tokens.clear();
     this.refreshTokens.clear();
+    this.revocations = [];
   },
   grant(code = "google_code", options: Partial<Grant> = {}) {
     this.grants.set(code, {
@@ -41,6 +43,19 @@ export const fakeGoogle = {
 };
 
 export const googleHandlers = [
+  http.post("https://oauth2.googleapis.com/revoke", async ({ request }) => {
+    const form = new URLSearchParams(await request.text());
+    const token = form.get("token") ?? "";
+    fakeGoogle.revocations.push(token);
+    const grant = fakeGoogle.refreshTokens.get(token);
+    if (!grant)
+      return HttpResponse.json({ error: "invalid_token" }, { status: 400 });
+    fakeGoogle.refreshTokens.delete(token);
+    for (const [accessToken, issuedGrant] of fakeGoogle.tokens) {
+      if (issuedGrant === grant) fakeGoogle.tokens.delete(accessToken);
+    }
+    return new HttpResponse(null, { status: 200 });
+  }),
   http.post("https://oauth2.googleapis.com/token", async ({ request }) => {
     const form = new URLSearchParams(await request.text());
     if (
