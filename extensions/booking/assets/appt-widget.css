@@ -21,6 +21,7 @@
 
 .appt-widget select,
 .appt-widget input,
+.appt-widget textarea,
 .appt-widget button {
   box-sizing: border-box;
   max-width: 100%;
@@ -34,8 +35,28 @@
 }
 
 .appt-widget select,
-.appt-widget input {
+.appt-widget input,
+.appt-widget textarea {
   width: 100%;
+}
+
+.appt-widget form {
+  margin-block-start: 1rem;
+}
+
+.appt-widget fieldset {
+  border: 1px solid currentColor;
+  padding: 1rem;
+}
+
+.appt-widget fieldset input,
+.appt-widget fieldset textarea {
+  margin-block-end: 1rem;
+}
+
+.appt-widget :disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .appt-widget__slots {

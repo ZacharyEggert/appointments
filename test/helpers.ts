@@ -1,3 +1,6 @@
+import { action as saveSettings } from "../app/routes/app.settings";
+import { action as changeService } from "../app/routes/app.services";
+import { defaultSlotRules } from "../app/slot-rules";
 import { action as connect } from "../app/routes/app.google.connect";
 import { loader as callback } from "../app/routes/google.callback";
 import { action as selectCalendar } from "../app/routes/app.google.calendars";
@@ -151,4 +154,48 @@ export function proxyRequest(
     createHmac("sha256", "test_secret").update(message).digest("hex"),
   );
   return new Request(url);
+}
+
+export async function serviceForShop(
+  overrides: Record<string, string> = {},
+  openingHours = [{ dayOfWeek: 1, start: "09:00", end: "10:00" }],
+) {
+  const resource = await resourceForShop();
+  await saveSettings(
+    routeArgs(
+      adminRequest("/app/settings", {
+        method: "POST",
+        body: new URLSearchParams({
+          settings: JSON.stringify({
+            resourceId: resource.id,
+            openingHours,
+            slotRules: defaultSlotRules,
+          }),
+        }),
+      }),
+    ),
+  );
+  const created = await changeService(
+    routeArgs(
+      adminRequest("/app/services", {
+        method: "POST",
+        body: new URLSearchParams({
+          intent: "create",
+          name: "Lesson",
+          resource_id: resource.id,
+          ...overrides,
+        }),
+      }),
+    ),
+  );
+  const { metaobject } = await created.json();
+  await changeService(
+    routeArgs(
+      adminRequest("/app/services", {
+        method: "POST",
+        body: new URLSearchParams({ intent: "publish", id: metaobject.id }),
+      }),
+    ),
+  );
+  return { ...metaobject, resource };
 }

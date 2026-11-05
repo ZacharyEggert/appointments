@@ -26,6 +26,20 @@
   <p data-appt-timezone></p>
   <p data-appt-status role="status" aria-live="polite">Loading Services…</p>
   <div data-appt-slots class="appt-widget__slots" role="group" aria-label="Available times"></div>
+  <form data-appt-booking hidden>
+    <fieldset>
+      <legend>Guest details</legend>
+      <label for="appt-name-{{ block.id }}">Name</label>
+      <input id="appt-name-{{ block.id }}" name="name" autocomplete="name" maxlength="200" required>
+      <label for="appt-email-{{ block.id }}">Email</label>
+      <input id="appt-email-{{ block.id }}" name="email" type="email" autocomplete="email" maxlength="254" required>
+      <label for="appt-phone-{{ block.id }}">Phone (optional)</label>
+      <input id="appt-phone-{{ block.id }}" name="phone" type="tel" autocomplete="tel" maxlength="100">
+      <label for="appt-notes-{{ block.id }}">Notes (optional)</label>
+      <textarea id="appt-notes-{{ block.id }}" name="notes" maxlength="4000" rows="3"></textarea>
+      <button type="submit">Book selected time</button>
+    </fieldset>
+  </form>
   <noscript>{{ 'booking.javascript_required' | t }}</noscript>
 </appointments-widget>
 {%- endif -%}
