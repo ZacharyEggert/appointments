@@ -39,10 +39,14 @@ test("an external Google event appearing after the free/busy check wins without 
   expect(fakeGoogle.writes.every((w) => !w.body.attendees)).toBe(true);
 });
 
-function book(service: string, overrides: Record<string, unknown> = {}) {
+function book(
+  service: string,
+  overrides: Record<string, unknown> = {},
+  query: Record<string, string> = {},
+) {
   return action(
     routeArgs(
-      new Request(proxyRequest("/proxy/book"), {
+      new Request(proxyRequest("/proxy/book", query), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -267,4 +271,25 @@ test("missing, unpublished, and foreign Services cannot create Bookings", async 
     ),
   ).rejects.toMatchObject({ status: 404 });
   expect(fakeGoogle.writes).toEqual([]);
+});
+
+test("a logged-in customer's Booking stores the signed Shopify customer id; a body-supplied id is ignored", async () => {
+  const service = await serviceForShop();
+  const response = await book(
+    service.handle,
+    { customerId: "999" },
+    { logged_in_customer_id: "123" },
+  );
+  expect(response.status).toBe(201);
+  expect(fakeGoogle.events[0].extendedProperties?.private.customerId).toBe(
+    "123",
+  );
+});
+
+test("a guest Booking has no customer id", async () => {
+  const service = await serviceForShop();
+  await book(service.handle, { customerId: "999" });
+  expect(fakeGoogle.events[0].extendedProperties?.private).not.toHaveProperty(
+    "customerId",
+  );
 });
