@@ -211,6 +211,11 @@
         for (const service of services)
           serviceInput.add(new Option(service.name, service.handle));
         serviceInput.disabled = !services.length;
+        if (root.dataset.fixed && services.length === 1) {
+          serviceInput.value = services[0].handle;
+          serviceInput.disabled = true;
+        }
+        if (serviceInput.value) return loadSlots();
         status.textContent = services.length
           ? "Choose a Service and a date to see available times."
           : "No Services available.";
