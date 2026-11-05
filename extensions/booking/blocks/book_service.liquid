@@ -1,0 +1,50 @@
+{%- comment -%} Service page: the handle is the last path segment. {%- endcomment -%}
+{%- assign handle = request.path | split: '/' | last -%}
+{%- assign service = shop.metaobjects['$app:service'][handle] -%}
+{%- if service != blank -%}
+<appointments-widget
+  class="appt-widget"
+  data-proxy="{{ block.settings.proxy_path | default: '/apps/appointments' | escape }}"
+  data-services="{{ service.system.handle | escape }}"
+  data-fixed="true"
+>
+  <h2>{{ service.name.value | escape }}</h2>
+  <div class="appt-widget__controls">
+    <div>
+      <label for="appt-service-{{ block.id }}">Service</label>
+      <select id="appt-service-{{ block.id }}" data-appt-service disabled>
+        <option value="">Choose a Service</option>
+      </select>
+    </div>
+    <div>
+      <label for="appt-date-{{ block.id }}">Date</label>
+      <input id="appt-date-{{ block.id }}" data-appt-date type="date" disabled>
+    </div>
+  </div>
+  <p data-appt-description hidden></p>
+  <p data-appt-price hidden></p>
+  <p data-appt-timezone></p>
+  <p data-appt-status role="status" aria-live="polite">Loading Services…</p>
+  <div data-appt-slots class="appt-widget__slots" role="group" aria-label="Available times"></div>
+  <noscript>{{ 'booking.javascript_required' | t }}</noscript>
+</appointments-widget>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Book this Service",
+  "target": "content",
+  "javascript": "appt-widget.js",
+  "stylesheet": "appt-widget.css",
+  "enabled_on": { "templates": ["metaobject"] },
+  "settings": [
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "App proxy path",
+      "default": "/apps/appointments",
+      "info": "If you changed the app proxy URL in Shopify, enter its path here."
+    }
+  ]
+}
+{% endschema %}

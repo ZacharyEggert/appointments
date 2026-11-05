@@ -16,7 +16,10 @@
     const proxyPath = root.dataset.proxy || "/apps/appointments";
 
     async function get(path, query, signal) {
-      const proxy = new URL(proxyPath.replace(/\/+$/, "") + "/", location.origin);
+      const proxy = new URL(
+        proxyPath.replace(/\/+$/, "") + "/",
+        location.origin,
+      );
       if (proxy.origin !== location.origin || !proxyPath.startsWith("/"))
         throw new Error("Invalid app proxy path");
       const url = new URL(path, proxy);
@@ -142,6 +145,11 @@
         for (const service of services)
           serviceInput.add(new Option(service.name, service.handle));
         serviceInput.disabled = !services.length;
+        if (root.dataset.fixed && services.length === 1) {
+          serviceInput.value = services[0].handle;
+          serviceInput.disabled = true;
+        }
+        if (serviceInput.value) return loadSlots();
         status.textContent = services.length
           ? "Choose a Service and a date to see available times."
           : "No Services available.";
