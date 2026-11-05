@@ -34,10 +34,7 @@ async function customerBookings(shop: string, payload: CustomerPayload) {
   const filters: [string, string][] = [];
   if (email?.trim()) filters.push(["emailHash", emailHash(email)]);
   if (payload.customer?.id != null)
-    filters.push([
-      "customerId",
-      `gid://shopify/Customer/${payload.customer.id}`,
-    ]);
+    filters.push(["customerId", String(payload.customer.id)]);
   if (!filters.length) return [];
   const connection = await db.googleConnection.findUnique({ where: { shop } });
   if (!connection || connection.status !== "connected")
