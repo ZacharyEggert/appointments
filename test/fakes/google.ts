@@ -26,6 +26,15 @@ interface FakeEvent {
   end: string;
   transparency?: "opaque" | "transparent";
   status?: "confirmed" | "cancelled";
+  conferenceData?: {
+    createRequest: {
+      requestId: string;
+      conferenceSolutionKey: { type: string };
+      status: { statusCode: "pending" | "success" | "failure" };
+    };
+    entryPoints?: { entryPointType: string; uri: string }[];
+  };
+  hangoutLink?: string;
 }
 
 export const fakeGoogle = {
@@ -35,9 +44,11 @@ export const fakeGoogle = {
   revocations: [] as string[],
   events: [] as FakeEvent[],
   beforeList: undefined as (() => void) | undefined,
+  conferenceStatus: "success" as "pending" | "success" | "failure",
   writes: [] as {
     method: string;
     sendUpdates: string | null;
+    conferenceDataVersion?: string | null;
     body: Record<string, unknown>;
   }[],
   reset() {
@@ -48,6 +59,7 @@ export const fakeGoogle = {
     this.events = [];
     this.writes = [];
     this.beforeList = undefined;
+    this.conferenceStatus = "success";
   },
   grant(code = "google_code", options: Partial<Grant> = {}) {
     this.grants.set(code, {
@@ -88,17 +100,22 @@ export const googleHandlers = [
         e.calendarId === params.calendarId &&
         e.status !== "cancelled" &&
         Date.parse(e.end) > Date.parse(url.searchParams.get("timeMin")!) &&
-        Date.parse(e.start) < Date.parse(url.searchParams.get("timeMax")!),
+        Date.parse(e.start) <
+          Date.parse(url.searchParams.get("timeMax") ?? "9999-01-01") &&
+        url.searchParams.getAll("privateExtendedProperty").every((pair) => {
+          const [key, value] = pair.split("=");
+          return e.extendedProperties?.private[key] === value;
+        }),
     );
+    if (url.searchParams.get("orderBy") === "startTime")
+      events.sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
     const page = Number(url.searchParams.get("pageToken") ?? 0);
     return HttpResponse.json({
-      items: events
-        .slice(page, page + 1)
-        .map((e) => ({
-          ...e,
-          start: { dateTime: e.start },
-          end: { dateTime: e.end },
-        })),
+      items: events.slice(page, page + 1).map((e) => ({
+        ...e,
+        start: { dateTime: e.start },
+        end: { dateTime: e.end },
+      })),
       ...(page + 1 < events.length ? { nextPageToken: String(page + 1) } : {}),
     });
   }),
@@ -125,12 +142,41 @@ export const googleHandlers = [
     fakeGoogle.writes.push({
       method: "POST",
       sendUpdates: new URL(request.url).searchParams.get("sendUpdates"),
+      conferenceDataVersion: new URL(request.url).searchParams.get(
+        "conferenceDataVersion",
+      ),
       body,
     });
+    const { conferenceData, ...eventBody } = body;
+    const conference = conferenceData as FakeEvent["conferenceData"];
     const event = {
-      ...body,
+      ...eventBody,
       id: `event${fakeGoogle.events.length + 1}`,
       created: new Date().toISOString(),
+      ...(conference &&
+      new URL(request.url).searchParams.get("conferenceDataVersion") === "1"
+        ? {
+            conferenceData: {
+              createRequest: {
+                ...conference.createRequest,
+                status: { statusCode: fakeGoogle.conferenceStatus },
+              },
+              ...(fakeGoogle.conferenceStatus === "success"
+                ? {
+                    entryPoints: [
+                      {
+                        entryPointType: "video",
+                        uri: "https://meet.google.com/abc-defg-hij",
+                      },
+                    ],
+                  }
+                : {}),
+            },
+            ...(fakeGoogle.conferenceStatus === "success"
+              ? { hangoutLink: "https://meet.google.com/abc-defg-hij" }
+              : {}),
+          }
+        : {}),
     };
     const { start, end } = body as {
       start: { dateTime: string };
@@ -155,6 +201,9 @@ export const googleHandlers = [
     fakeGoogle.writes.push({
       method: "PATCH",
       sendUpdates: new URL(request.url).searchParams.get("sendUpdates"),
+      conferenceDataVersion: new URL(request.url).searchParams.get(
+        "conferenceDataVersion",
+      ),
       body,
     });
     Object.assign(event, body);

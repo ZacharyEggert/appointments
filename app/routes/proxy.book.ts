@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { authenticate } from "../shopify.server";
 import { storefrontService } from "../services.server";
 import { invalid, shopSlotRules } from "../settings.server";
-import { book } from "../booking.server";
+import { book, type SubjectProduct } from "../booking.server";
 import { timestamp } from "../timestamp.server";
 import { bookingRetryAfter } from "../booking-abuse.server";
 
@@ -70,12 +70,35 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       },
     );
+  let subject: SubjectProduct | undefined;
+  if (input.subjectProduct !== undefined) {
+    const sp = input.subjectProduct;
+    if (!sp || typeof sp !== "object" || Array.isArray(sp))
+      invalid("Invalid subjectProduct");
+    const fields = sp as Record<string, unknown>;
+    subject = {
+      id: text(fields, "id", 100),
+      title: text(fields, "title", 500),
+    };
+  }
   const { service } = await storefrontService(
     admin,
     handle,
     await shopSlotRules(session.shop),
   );
-  const result = await book(session.shop, service, slotStart, customer);
+  // Signed by the app proxy; empty for guests.
+  const customerId =
+    new URL(request.url).searchParams.get("logged_in_customer_id") || undefined;
+
+  const result = await book(
+    session.shop,
+    service,
+    slotStart,
+    customer,
+    customerId,
+
+    subject,
+  );
   return Response.json(result, {
     status:
       result.status === "confirmed"

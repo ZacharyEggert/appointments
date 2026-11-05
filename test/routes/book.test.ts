@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { action } from "../../app/routes/proxy.book";
 import { action as uninstall } from "../../app/routes/webhooks.app.uninstalled";
 import { action as redactShop } from "../../app/routes/webhooks.shop.redact";
+import { loader as slotsLoader } from "../../app/routes/proxy.slots";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
 import { http, HttpResponse } from "msw";
@@ -47,10 +48,11 @@ function book(
   overrides: Record<string, unknown> = {},
   headers: Record<string, string> = {},
   shop = SHOP,
+  query: Record<string, string> = {},
 ) {
   return action(
     routeArgs(
-      new Request(proxyRequest("/proxy/book", {}, shop), {
+      new Request(proxyRequest("/proxy/book", query, shop), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -70,6 +72,103 @@ function book(
     ),
   );
 }
+
+test("remote Bookings request Meet by default and confirm gracefully while creation is pending", async () => {
+  const service = await serviceForShop({ location: "remote" });
+  fakeGoogle.conferenceStatus = "pending";
+  const response = await book(service.handle);
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({
+    status: "confirmed",
+    eventId: "event1",
+  });
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "POST"),
+  ).toMatchObject({
+    sendUpdates: "none",
+    conferenceDataVersion: "1",
+    body: {
+      conferenceData: {
+        createRequest: {
+          requestId: expect.any(String),
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
+    },
+  });
+  expect(fakeGoogle.events[0].hangoutLink).toBeUndefined();
+  expect(fakeGoogle.events[0].conferenceData?.createRequest.status).toEqual({
+    statusCode: "pending",
+  });
+  expect(fakeGoogle.events[0].attendees).toEqual([
+    { email: "jane@example.com", displayName: "Jane Doe" },
+  ]);
+});
+
+test("a ready Meet link remains on the remote Booking when the customer is invited", async () => {
+  const service = await serviceForShop({
+    location: "remote",
+    meet_enabled: "true",
+  });
+  expect((await book(service.handle)).status).toBe(201);
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "PATCH"),
+  ).toMatchObject({
+    sendUpdates: "all",
+    conferenceDataVersion: "1",
+    body: {
+      attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
+    },
+  });
+  expect(fakeGoogle.events[0]).toMatchObject({
+    hangoutLink: "https://meet.google.com/abc-defg-hij",
+    conferenceData: {
+      createRequest: { status: { statusCode: "success" } },
+      entryPoints: [
+        {
+          entryPointType: "video",
+          uri: "https://meet.google.com/abc-defg-hij",
+        },
+      ],
+    },
+    attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
+  });
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "PATCH")!.body,
+  ).not.toHaveProperty("conferenceData");
+});
+
+test.each([
+  { location: "remote", meet_enabled: "false" },
+  { location: "in-person", meet_enabled: "true" },
+])("Bookings omit conference data for %j", async (settings) => {
+  const service = await serviceForShop(settings);
+  expect((await book(service.handle)).status).toBe(201);
+  for (const write of fakeGoogle.writes) {
+    expect(write.conferenceDataVersion).toBeNull();
+    expect(write.body).not.toHaveProperty("conferenceData");
+  }
+  expect(fakeGoogle.events[0]).not.toHaveProperty("conferenceData");
+  expect(fakeGoogle.events[0]).not.toHaveProperty("hangoutLink");
+});
+
+test("each remote Booking requests its own conference, including non-blocking Services", async () => {
+  const service = await serviceForShop({
+    location: "remote",
+    blocking: "false",
+  });
+  expect((await book(service.handle)).status).toBe(201);
+  expect(
+    (await book(service.handle, { email: "another@example.com" })).status,
+  ).toBe(201);
+  const requests = fakeGoogle.events.map(
+    (event) => event.conferenceData?.createRequest.requestId,
+  );
+  expect(requests).toEqual([expect.any(String), expect.any(String)]);
+  expect(requests[0]).not.toBe("");
+  expect(requests[1]).not.toBe("");
+  expect(requests[0]).not.toBe(requests[1]);
+});
 
 test("a guest receives a confirmed Booking with customer context and only a hashed email in private properties", async () => {
   const service = await serviceForShop();
@@ -366,6 +465,37 @@ test("a non-blocking Service writes transparent Bookings and leaves the Slot boo
   expect(fakeGoogle.events.every((e) => e.transparency === "transparent")).toBe(
     true,
   );
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots[0].start).toBe("2026-11-09T17:00:00.000Z");
+});
+
+test("a blocking Booking removes its Slot", async () => {
+  const service = await serviceForShop();
+  expect((await book(service.handle)).status).toBe(201);
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots.map((x: { start: string }) => x.start)).toEqual([
+    "2026-11-09T17:30:00.000Z",
+  ]);
 });
 
 test("a guest can omit optional contact fields", async () => {
@@ -479,3 +609,50 @@ test("missing, unpublished, and foreign Services cannot create Bookings", async 
   ).rejects.toMatchObject({ status: 404 });
   expect(fakeGoogle.writes).toEqual([]);
 });
+
+test("a logged-in customer's Booking stores the signed Shopify customer id; a body-supplied id is ignored", async () => {
+  const service = await serviceForShop();
+  const response = await book(
+    service.handle,
+    { customerId: "999" },
+    {},
+    SHOP,
+    { logged_in_customer_id: "123" },
+  );
+  expect(response.status).toBe(201);
+  expect(fakeGoogle.events[0].extendedProperties?.private.customerId).toBe(
+    "123",
+  );
+});
+
+test("a guest Booking has no customer id", async () => {
+  const service = await serviceForShop();
+  await book(service.handle, { customerId: "999" });
+  expect(fakeGoogle.events[0].extendedProperties?.private).not.toHaveProperty(
+    "customerId",
+  );
+});
+
+test("a Booking from a product page records the Subject product id and title in the event", async () => {
+  const service = await serviceForShop();
+  const response = await book(service.handle, {
+    subjectProduct: { id: "7890", title: "1962 Strat" },
+  });
+  expect(response.status).toBe(201);
+  const event = fakeGoogle.events[0];
+  expect(event.description).toBe(
+    "Service: Lesson\nCustomer: Jane Doe\nPhone: 555-1234\nNotes: Bring guitar\nProduct: 1962 Strat",
+  );
+  expect(event.extendedProperties?.private.subjectProductId).toBe("7890");
+});
+
+test.each([{ id: "", title: "x" }, { id: "1", title: "x".repeat(501) }, "bad"])(
+  "invalid Subject product cannot write an event (case %#)",
+  async (subjectProduct) => {
+    const service = await serviceForShop();
+    await expect(
+      book(service.handle, { subjectProduct }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fakeGoogle.writes).toEqual([]);
+  },
+);
