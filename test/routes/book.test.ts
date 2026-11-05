@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { action } from "../../app/routes/proxy.book";
+import { loader as slotsLoader } from "../../app/routes/proxy.slots";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
 import { http, HttpResponse } from "msw";
@@ -155,6 +156,37 @@ test("a non-blocking Service writes transparent Bookings and leaves the Slot boo
   expect(fakeGoogle.events.every((e) => e.transparency === "transparent")).toBe(
     true,
   );
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots[0].start).toBe("2026-11-09T17:00:00.000Z");
+});
+
+test("a blocking Booking removes its Slot", async () => {
+  const service = await serviceForShop();
+  expect((await book(service.handle)).status).toBe(201);
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots.map((x: { start: string }) => x.start)).toEqual([
+    "2026-11-09T17:30:00.000Z",
+  ]);
 });
 
 test("a guest can omit optional contact fields", async () => {
