@@ -5,7 +5,6 @@ embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [access_scopes]
 scopes = "write_metaobject_definitions,write_metaobjects,read_metaobjects,read_products,write_app_proxy"
