@@ -161,6 +161,14 @@
             service: serviceInput.value,
             slotStart: selectedSlot.start,
             ...details,
+            ...(root.dataset.productId
+              ? {
+                  subjectProduct: {
+                    id: root.dataset.productId,
+                    title: root.dataset.productTitle,
+                  },
+                }
+              : {}),
           });
           if (lifecycle.signal.aborted) return;
           if (result.status === "confirmed") {
