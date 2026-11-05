@@ -1,0 +1,7 @@
+name = "Appointments"
+roles = ["frontend", "backend"]
+webhooks_path = "/webhooks/app/uninstalled"
+
+[commands]
+predev = "pnpm prisma generate"
+dev = "pnpm prisma migrate deploy && pnpm exec react-router dev"

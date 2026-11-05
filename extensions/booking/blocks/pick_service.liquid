@@ -1,0 +1,75 @@
+<appointments-widget
+  class="appt-widget"
+  data-customer-name="{{ customer.name | escape }}"
+  data-customer-email="{{ customer.email | escape }}"
+  data-proxy="{{ block.settings.proxy_path | default: '/apps/appointments' | escape }}"
+  data-services="{{ block.settings.services | escape }}"
+>
+  <h2>{{ block.settings.heading | escape }}</h2>
+  <div class="appt-widget__controls">
+    <div>
+      <label for="appt-service-{{ block.id }}">Service</label>
+      <select id="appt-service-{{ block.id }}" data-appt-service disabled>
+        <option value="">Choose a Service</option>
+      </select>
+    </div>
+    <div>
+      <label for="appt-date-{{ block.id }}">Date</label>
+      <input id="appt-date-{{ block.id }}" data-appt-date type="date" disabled>
+    </div>
+  </div>
+  <p data-appt-description hidden></p>
+  <p data-appt-price hidden></p>
+  <p data-appt-timezone></p>
+  <p data-appt-status role="status" aria-live="polite">Loading Services…</p>
+  <div data-appt-slots class="appt-widget__slots" role="group" aria-label="Available times"></div>
+  <form data-appt-booking hidden>
+    <fieldset>
+      <legend>Guest details</legend>
+      <div class="appt-widget__honeypot" aria-hidden="true">
+        <label for="appt-website-{{ block.id }}">Leave this field empty</label>
+        <input id="appt-website-{{ block.id }}" name="website" tabindex="-1" autocomplete="off">
+      </div>
+      <label for="appt-name-{{ block.id }}">Name</label>
+      <input id="appt-name-{{ block.id }}" name="name" autocomplete="name" maxlength="200" required>
+      <label for="appt-email-{{ block.id }}">Email</label>
+      <input id="appt-email-{{ block.id }}" name="email" type="email" autocomplete="email" maxlength="254" required>
+      <label for="appt-phone-{{ block.id }}">Phone (optional)</label>
+      <input id="appt-phone-{{ block.id }}" name="phone" type="tel" autocomplete="tel" maxlength="100">
+      <label for="appt-notes-{{ block.id }}">Notes (optional)</label>
+      <textarea id="appt-notes-{{ block.id }}" name="notes" maxlength="4000" rows="3"></textarea>
+      <button type="submit">Book selected time</button>
+    </fieldset>
+  </form>
+  <noscript>{{ 'booking.javascript_required' | t }}</noscript>
+</appointments-widget>
+
+{% schema %}
+{
+  "name": "Pick a Service",
+  "target": "content",
+  "javascript": "appt-widget.js",
+  "stylesheet": "appt-widget.css",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Book a time"
+    },
+    {
+      "type": "text",
+      "id": "services",
+      "label": "Service handles",
+      "info": "Leave blank for all published Services, or enter handles separated by commas. Find each handle at the end of its Service page URL."
+    },
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "App proxy path",
+      "default": "/apps/appointments",
+      "info": "If you changed the app proxy URL in Shopify, enter its path here."
+    }
+  ]
+}
+{% endschema %}
