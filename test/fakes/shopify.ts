@@ -21,6 +21,7 @@ export const fakeShopify = {
   definitionCreates: 0,
   services: new Map<string, FakeMetaobject[]>(),
   nextId: 1,
+  products: new Map<string, string>(), // gid -> title
   shop: { name: "Test guitar shop", ianaTimezone: "America/Los_Angeles" },
   serviceDefinitions: new Map<string, { id: string; type: string }>(),
   reset() {
@@ -28,6 +29,7 @@ export const fakeShopify = {
     this.definitionCreates = 0;
     this.services.clear();
     this.nextId = 1;
+    this.products.clear();
     this.serviceDefinitions.clear();
     this.shop = {
       name: "Test guitar shop",
@@ -76,6 +78,12 @@ export const shopifyHandlers = [
                 .get(shop)
                 ?.find((s) => s.handle === variables.handle?.handle) ?? null,
           },
+        });
+      }
+      if (query.includes("query SubjectProduct")) {
+        const title = fakeShopify.products.get(variables.id);
+        return HttpResponse.json({
+          data: { product: title ? { id: variables.id, title } : null },
         });
       }
       if (query.includes("query ShopSetup")) {

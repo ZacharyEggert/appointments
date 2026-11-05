@@ -3,12 +3,15 @@ import { action as redact } from "../../app/routes/webhooks.customers.redact";
 import { action as dataRequest } from "../../app/routes/webhooks.customers.data_request";
 import {
   installShop,
+  proxyRequest,
   resourceForShop,
   routeArgs,
   webhookRequest,
   SHOP,
 } from "../helpers";
 import { fakeGoogle } from "../fakes/google";
+import { action as bookAction } from "../../app/routes/proxy.book";
+import { serviceForShop } from "../helpers";
 import { action as uninstall } from "../../app/routes/webhooks.app.uninstalled";
 import { http, HttpResponse } from "msw";
 import { server } from "../setup";
@@ -75,14 +78,14 @@ test("redaction finds past Bookings by normalized email hash, scrubs PII, and ke
   await installShop();
   await resourceForShop();
   const original = booking("past", {
-    customerId: "gid://shopify/Customer/42",
+    customerId: "42",
     customerName: "Jane Doe",
     phone: "555-1234",
   });
   const unrelated = [
     booking("other-customer", {
       emailHash: "different",
-      customerId: "gid://shopify/Customer/99",
+      customerId: "99",
     }),
     booking("other-shop", { shop: "other.myshopify.com" }),
     booking("other-app", { app: "other" }),
@@ -127,10 +130,10 @@ test("redaction matches Shopify customer id independently of email and tolerates
     booking("email-only"),
     booking(
       "id-only",
-      { emailHash: "old-email", customerId: "gid://shopify/Customer/42" },
+      { emailHash: "old-email", customerId: "42" },
       "transparent",
     ),
-    booking("both", { customerId: "gid://shopify/Customer/42" }),
+    booking("both", { customerId: "42" }),
   ];
   fakeGoogle.events.push(...structuredClone(events));
   const request = webhookRequest("customers/redact", {
@@ -155,7 +158,7 @@ test("redaction matches Shopify customer id independently of email and tolerates
   fakeGoogle.events.push(
     booking("no-email", {
       emailHash: "another",
-      customerId: "gid://shopify/Customer/42",
+      customerId: "42",
     }),
   );
   expect(
@@ -179,9 +182,9 @@ test("data requests collect the union of matching Bookings into a structured log
     booking("email"),
     booking("id", {
       emailHash: "old",
-      customerId: "gid://shopify/Customer/42",
+      customerId: "42",
     }),
-    booking("both", { customerId: "gid://shopify/Customer/42" }),
+    booking("both", { customerId: "42" }),
   ];
   fakeGoogle.events.push(
     ...structuredClone(events),
@@ -242,7 +245,7 @@ test.each(webhooks)(
       reason: "google-disconnected",
     });
     expect(JSON.stringify(log.mock.calls)).not.toMatch(
-      /jane|example\.com|Customer\/42/,
+      /jane|example\.com|"42"/,
     );
     expect(fakeGoogle.events).toEqual(original);
   },
@@ -401,3 +404,52 @@ test.each(webhooks)(
     expect(fakeGoogle.events).toEqual(original);
   },
 );
+
+test("redaction and data requests find a Booking made by a logged-in customer via the Booking route", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-09T16:00:00Z"));
+  try {
+    await installShop();
+    const service = await serviceForShop();
+    const response = await bookAction(
+      routeArgs(
+        new Request(
+          proxyRequest("/proxy/book", { logged_in_customer_id: "42" }),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              service: service.handle,
+              slotStart: "2026-11-09T17:00:00Z",
+              name: "Jane Doe",
+              email: "jane@example.com",
+            }),
+          },
+        ),
+      ),
+    );
+    expect(response.status).toBe(201);
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    await dataRequest(
+      routeArgs(
+        webhookRequest("customers/data_request", {
+          customer: { id: 42 },
+          data_request: { id: 1 },
+        }),
+      ),
+    );
+    expect(String(log.mock.calls[0][0])).toContain("event1");
+    expect(
+      (
+        await redact(
+          routeArgs(
+            webhookRequest("customers/redact", { customer: { id: 42 } }),
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(fakeGoogle.events[0].summary).toBe("Redacted booking");
+  } finally {
+    vi.useRealTimers();
+  }
+});

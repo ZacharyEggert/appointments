@@ -102,7 +102,10 @@
           minute: "2-digit",
           timeZoneName: "shortOffset",
         });
-        zone.textContent = `Times shown in ${result.timeZone}.`;
+        zone.textContent =
+          result.display === "browser"
+            ? `Times shown in your timezone (${result.timeZone}).`
+            : `Times shown in the shop timezone (${result.timeZone}).`;
         const fragment = document.createDocumentFragment();
         for (const slot of result.slots) {
           const start = new Date(slot.start);

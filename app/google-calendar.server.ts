@@ -31,15 +31,23 @@ export interface GoogleEvent {
   summary?: string;
 }
 
+export const APP_MARKER = "appointments";
+
+export function isOwnEvent(event: GoogleEvent, shop: string) {
+  const properties = event.extendedProperties?.private;
+  return properties?.app === APP_MARKER && properties.shop === shop;
+}
+
+function eventsUrl(calendarId: string, eventId?: string) {
+  return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ""}`;
+}
+
 export async function getGoogleEvent(
   shop: string,
   calendarId: string,
   eventId: string,
 ): Promise<GoogleEvent | null> {
-  const response = await googleFetch(
-    shop,
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-  );
+  const response = await googleFetch(shop, eventsUrl(calendarId, eventId));
   if (response.status === 404 || response.status === 410) return null;
   if (!response.ok) throw new Error("Google event lookup failed");
   const event = (await response.json()) as GoogleEvent;
@@ -54,9 +62,7 @@ export async function writeGoogleEvent(
   supportsConferenceData = Boolean(body.conferenceData),
   options?: { sendUpdates: "all" | "none" },
 ): Promise<GoogleEvent> {
-  const url = new URL(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ""}`,
-  );
+  const url = new URL(eventsUrl(calendarId, eventId));
   url.searchParams.set(
     "sendUpdates",
     options?.sendUpdates ?? (eventId ? "all" : "none"),
@@ -83,9 +89,7 @@ export async function googleEventsByProperty(
   const events: GoogleEvent[] = [];
   let pageToken: string | undefined;
   do {
-    const url = new URL(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-    );
+    const url = new URL(eventsUrl(calendarId));
     url.search = new URLSearchParams({
       privateExtendedProperty: `${key}=${value}`,
       singleEvents: "true",
@@ -115,9 +119,7 @@ export async function overlappingGoogleEvents(
   const events: GoogleEvent[] = [];
   let pageToken: string | undefined;
   do {
-    const url = new URL(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-    );
+    const url = new URL(eventsUrl(calendarId));
     url.search = new URLSearchParams({
       timeMin: from.toISOString(),
       timeMax: to.toISOString(),
@@ -147,15 +149,13 @@ export async function upcomingAppEvents(
   const events: GoogleEvent[] = [];
   let pageToken: string | undefined;
   do {
-    const url = new URL(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
-    );
+    const url = new URL(eventsUrl(calendarId));
     url.search = new URLSearchParams([
       ["timeMin", from.toISOString()],
       ["singleEvents", "true"],
       ["orderBy", "startTime"],
       ["showDeleted", "false"],
-      ["privateExtendedProperty", "app=appointments"],
+      ["privateExtendedProperty", `app=${APP_MARKER}`],
       ["privateExtendedProperty", `shop=${shop}`],
       ...(pageToken ? [["pageToken", pageToken]] : []),
     ]).toString();
@@ -179,7 +179,7 @@ export async function deleteGoogleEvent(
 ) {
   const response = await googleFetch(
     shop,
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=${sendUpdates}`,
+    `${eventsUrl(calendarId, eventId)}?sendUpdates=${sendUpdates}`,
     { method: "DELETE" },
   );
   if (!response.ok && response.status !== 404 && response.status !== 410)

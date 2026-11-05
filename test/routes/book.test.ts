@@ -5,6 +5,7 @@ import { action as redactShop } from "../../app/routes/webhooks.shop.redact";
 import { loader as slotsLoader } from "../../app/routes/proxy.slots";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
+import db from "../../app/db.server";
 import { http, HttpResponse } from "msw";
 import { server } from "../setup";
 import {
@@ -319,6 +320,8 @@ test.each([
     for (let i = 0; i < 3; i++)
       expect((await book(service.handle)).status).toBe(201);
     expect((await book(service.handle)).status).toBe(429);
+    if (topic === "shop/redact")
+      await db.session.deleteMany({ where: { shop: SHOP } });
     expect((await cleanup(routeArgs(webhookRequest(topic)))).status).toBe(200);
     await installShop();
     const reinstalled = await serviceForShop({ blocking: "false" });
@@ -646,10 +649,11 @@ test("a guest Booking has no customer id", async () => {
   );
 });
 
-test("a Booking from a product page records the Subject product id and title in the event", async () => {
+test("a Booking from a product page records the Shopify-verified Subject product, not the client-sent title", async () => {
   const service = await serviceForShop();
+  fakeShopify.products.set("gid://shopify/Product/7890", "1962 Strat");
   const response = await book(service.handle, {
-    subjectProduct: { id: "7890", title: "1962 Strat" },
+    subjectProduct: { id: "7890", title: "Spoofed title" },
   });
   expect(response.status).toBe(201);
   const event = fakeGoogle.events[0];
@@ -657,6 +661,19 @@ test("a Booking from a product page records the Subject product id and title in 
     /^Service: Lesson\nCustomer: Jane Doe\nPhone: 555-1234\nNotes: Bring guitar\nProduct: 1962 Strat\n\nManage Booking: /,
   );
   expect(event.extendedProperties?.private.subjectProductId).toBe("7890");
+});
+
+test("an unknown Subject product id is ignored; the Booking still succeeds", async () => {
+  const service = await serviceForShop();
+  const response = await book(service.handle, {
+    subjectProduct: { id: "404", title: "Spoofed title" },
+  });
+  expect(response.status).toBe(201);
+  const event = fakeGoogle.events[0];
+  expect(event.description).not.toContain("Product:");
+  expect(event.extendedProperties?.private).not.toHaveProperty(
+    "subjectProductId",
+  );
 });
 
 test.each([{ id: "", title: "x" }, { id: "1", title: "x".repeat(501) }, "bad"])(

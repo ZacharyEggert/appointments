@@ -1,6 +1,10 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
-import { deleteGoogleEvent, getGoogleEvent } from "../google-calendar.server";
+import {
+  deleteGoogleEvent,
+  getGoogleEvent,
+  isOwnEvent,
+} from "../google-calendar.server";
 import { verifyManageToken } from "../manage-link.server";
 
 function escape(value: string) {
@@ -41,10 +45,7 @@ async function manage(request: Request, cancel: boolean) {
   );
   if (!event)
     return liquid(cancelledPage, { headers: { "Cache-Control": "no-store" } });
-  if (
-    event.extendedProperties?.private?.app !== "appointments" ||
-    event.extendedProperties.private.shop !== session.shop
-  )
+  if (!isOwnEvent(event, session.shop))
     throw new Response("Invalid Manage link", { status: 403 });
   if (cancel) {
     await deleteGoogleEvent(session.shop, calendarId, eventId, "all").catch(

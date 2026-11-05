@@ -4,6 +4,7 @@ import type { OpeningHours } from "./slot-rules";
 import prisma from "./db.server";
 import type { Service } from "./services.server";
 import {
+  APP_MARKER,
   deleteGoogleEvent,
   googleBusy,
   overlappingGoogleEvents,
@@ -29,9 +30,11 @@ export async function book(
   service: Service,
   slotStart: Date,
   customer: Guest,
-  proxyPath: string,
-  customerId?: string,
-  subject?: SubjectProduct,
+  {
+    proxyPath,
+    customerId,
+    subject,
+  }: { proxyPath: string; customerId?: string; subject?: SubjectProduct },
 ) {
   const resource = await prisma.resource.findFirst({
     where: { id: service.resourceId, shop },
@@ -91,7 +94,7 @@ export async function book(
           },
           extendedProperties: {
             private: {
-              app: "appointments",
+              app: APP_MARKER,
               shop,
               serviceId: service.id,
               emailHash: emailHash(customer.email),
