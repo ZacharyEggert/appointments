@@ -1,23 +1,42 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
-import { listGoogleCalendars } from "../google-calendar.server";
+import {
+  GoogleDisconnectedError,
+  listGoogleCalendars,
+} from "../google-calendar.server";
 import prisma from "../db.server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
-  return Response.json(
-    { calendars: await listGoogleCalendars(session.shop) },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  try {
+    return Response.json(
+      { calendars: await listGoogleCalendars(session.shop) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    if (!(error instanceof GoogleDisconnectedError)) throw error;
+    return Response.json(
+      { calendars: [], disconnected: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
   const form = await request.formData();
   const calendarId = form.get("calendarId");
-  const calendar = (await listGoogleCalendars(session.shop)).find(
-    (item) => item.id === calendarId,
-  );
+  let calendars;
+  try {
+    calendars = await listGoogleCalendars(session.shop);
+  } catch (error) {
+    if (!(error instanceof GoogleDisconnectedError)) throw error;
+    return Response.json(
+      { disconnected: true },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const calendar = calendars.find((item) => item.id === calendarId);
   if (!calendar)
     throw new Response("Choose a writable calendar from your Google account", {
       status: 400,

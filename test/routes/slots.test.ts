@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { loader } from "../../app/routes/proxy.slots";
+import { loader as setup } from "../../app/routes/app._index";
+import { loader as admin } from "../../app/routes/app";
+import { loader as callback } from "../../app/routes/google.callback";
 import { action as saveSettings } from "../../app/routes/app.settings";
 import { action as changeService } from "../../app/routes/app.services";
 import { defaultSlotRules } from "../../app/slot-rules";
@@ -9,6 +12,8 @@ import { http, HttpResponse } from "msw";
 import { server } from "../setup";
 import {
   adminRequest,
+  callbackRequest,
+  consentState,
   installShop,
   proxyRequest,
   resourceForShop,
@@ -288,6 +293,115 @@ test("failed Google refresh returns booking unavailable instead of an empty or o
   await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
 });
 
+test("revoked Google refresh keeps Slots unavailable and tells the admin to reconnect", async () => {
+  const service = await offering();
+  fakeGoogle.refreshTokens.clear();
+  vi.setSystemTime(new Date("2026-11-09T17:01:00Z"));
+  const response = await slots(service.handle).catch(
+    (error: Response) => error,
+  );
+  expect(response.status).toBe(503);
+  expect(await response.text()).toBe("Booking unavailable");
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({
+    google: { status: "disconnected" },
+  });
+});
+
+test("revoking a still-cached Google token makes Slots unavailable and persists disconnection", async () => {
+  const service = await offering();
+  fakeGoogle.tokens.clear();
+  fakeGoogle.refreshTokens.clear();
+  await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({
+    google: { status: "disconnected" },
+  });
+});
+
+test("admin keeps the reconnect warning until successful consent restores Slots and configuration", async () => {
+  const service = await offering();
+  const available = await (await slots(service.handle)).json();
+  fakeGoogle.tokens.clear();
+  fakeGoogle.refreshTokens.clear();
+  await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
+  expect(await admin(routeArgs(adminRequest("/app/services")))).toMatchObject({
+    googleStatus: "disconnected",
+  });
+  const state = await consentState();
+  expect(await admin(routeArgs(adminRequest("/app/settings")))).toMatchObject({
+    googleStatus: "disconnected",
+  });
+  fakeGoogle.grant("partial-reconnect", {
+    scope: "https://www.googleapis.com/auth/calendar.events",
+  });
+  await expect(
+    callback(callbackRequest(state, "partial-reconnect")),
+  ).rejects.toMatchObject({
+    status: 400,
+  });
+  expect(await admin(routeArgs(adminRequest("/app/settings")))).toMatchObject({
+    googleStatus: "disconnected",
+  });
+  fakeGoogle.grant("reconnect", { refreshToken: "replacement_refresh_token" });
+  await callback(callbackRequest(await consentState(), "reconnect"));
+  expect(await admin(routeArgs(adminRequest("/app")))).toMatchObject({
+    googleStatus: "connected",
+  });
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({
+    resource: {
+      ...service.resource,
+      openingHours: [{ dayOfWeek: 1, start: "09:00", end: "10:00" }],
+    },
+  });
+  expect(await (await slots(service.handle)).json()).toEqual(available);
+});
+
+test.each([
+  ["insufficientPermissions", "disconnected"],
+  ["rateLimitExceeded", "connected"],
+  ["userRateLimitExceeded", "connected"],
+])("Google 403 %s leaves the connection %s", async (reason, status) => {
+  const service = await offering();
+  server.use(
+    http.post("https://www.googleapis.com/calendar/v3/freeBusy", () =>
+      HttpResponse.json({ error: { errors: [{ reason }] } }, { status: 403 }),
+    ),
+  );
+  await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({
+    google: { status },
+  });
+});
+
+test("a rejected fresh Google token still disconnects when refresh rotates the credentials", async () => {
+  const service = await offering();
+  server.use(
+    http.post("https://oauth2.googleapis.com/token", () =>
+      HttpResponse.json({
+        access_token: "rejected_fresh_token",
+        refresh_token: "rotated_refresh_token",
+        expires_in: 3600,
+      }),
+    ),
+    http.post("https://www.googleapis.com/calendar/v3/freeBusy", () =>
+      HttpResponse.json({ error: { code: 401 } }, { status: 401 }),
+    ),
+  );
+  await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({
+    google: { status: "disconnected" },
+  });
+});
+
 test("malformed Google busy intervals fail closed", async () => {
   const service = await offering();
   server.use(
@@ -314,6 +428,35 @@ test.each([401, 403, 429, 500])(
       ),
     );
     await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
+    expect(
+      await (await setup(routeArgs(adminRequest("/app")))).json(),
+    ).toMatchObject({
+      google: { status: status === 401 ? "disconnected" : "connected" },
+    });
+  },
+);
+
+test.each([400, 401, 429, 500, "network"])(
+  "Google token endpoint failure %s leaves admin access and the connection recoverable",
+  async (failure) => {
+    const service = await offering();
+    vi.setSystemTime(new Date("2026-11-09T17:01:00Z"));
+    server.use(
+      http.post("https://oauth2.googleapis.com/token", () =>
+        failure === "network"
+          ? HttpResponse.error()
+          : HttpResponse.json(
+              { error: "temporarily_unavailable" },
+              { status: Number(failure) },
+            ),
+      ),
+    );
+    await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
+    expect(await admin(routeArgs(adminRequest("/app/settings")))).toMatchObject(
+      {
+        googleStatus: "connected",
+      },
+    );
   },
 );
 
@@ -331,6 +474,21 @@ test("expired Google access refreshes before reading availability", async () => 
     { start: "2026-11-09T17:15:00.000Z", end: "2026-11-09T17:45:00.000Z" },
     { start: "2026-11-09T17:30:00.000Z", end: "2026-11-09T18:00:00.000Z" },
   ]);
+});
+
+test("a Google 401 refreshes cached access once and restores Slots without reconnecting", async () => {
+  const service = await offering();
+  fakeGoogle.tokens.clear();
+  expect((await (await slots(service.handle)).json()).slots).toEqual([
+    { start: "2026-11-09T17:00:00.000Z", end: "2026-11-09T17:30:00.000Z" },
+    { start: "2026-11-09T17:15:00.000Z", end: "2026-11-09T17:45:00.000Z" },
+    { start: "2026-11-09T17:30:00.000Z", end: "2026-11-09T18:00:00.000Z" },
+  ]);
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({
+    google: { status: "connected" },
+  });
 });
 
 test("tampered proxy queries and stale signatures are rejected", async () => {
