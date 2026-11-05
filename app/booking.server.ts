@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { availableSlots } from "./availability";
 import type { OpeningHours } from "./slot-rules";
 import prisma from "./db.server";
@@ -53,7 +54,18 @@ export async function book(
           }).some((slot) => slot.start === slotStart.toISOString())
         )
           return { status: "slot-taken" } as const;
+        const withMeet = service.location === "remote" && service.meetEnabled;
         const event = await writeGoogleEvent(shop, resource.calendarId, {
+          ...(withMeet
+            ? {
+                conferenceData: {
+                  createRequest: {
+                    requestId: randomUUID(),
+                    conferenceSolutionKey: { type: "hangoutsMeet" },
+                  },
+                },
+              }
+            : {}),
           summary: `${service.name} – ${customer.name}`,
           transparency: service.blocking ? "opaque" : "transparent",
           description: `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}`,
@@ -106,6 +118,7 @@ export async function book(
               ],
             },
             event.id,
+            withMeet,
           );
           confirmed = true;
           return { status: "confirmed", eventId: event.id } as const;

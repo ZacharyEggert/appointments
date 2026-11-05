@@ -59,6 +59,103 @@ function book(service: string, overrides: Record<string, unknown> = {}) {
   );
 }
 
+test("remote Bookings request Meet by default and confirm gracefully while creation is pending", async () => {
+  const service = await serviceForShop({ location: "remote" });
+  fakeGoogle.conferenceStatus = "pending";
+  const response = await book(service.handle);
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({
+    status: "confirmed",
+    eventId: "event1",
+  });
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "POST"),
+  ).toMatchObject({
+    sendUpdates: "none",
+    conferenceDataVersion: "1",
+    body: {
+      conferenceData: {
+        createRequest: {
+          requestId: expect.any(String),
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
+    },
+  });
+  expect(fakeGoogle.events[0].hangoutLink).toBeUndefined();
+  expect(fakeGoogle.events[0].conferenceData?.createRequest.status).toEqual({
+    statusCode: "pending",
+  });
+  expect(fakeGoogle.events[0].attendees).toEqual([
+    { email: "jane@example.com", displayName: "Jane Doe" },
+  ]);
+});
+
+test("a ready Meet link remains on the remote Booking when the customer is invited", async () => {
+  const service = await serviceForShop({
+    location: "remote",
+    meet_enabled: "true",
+  });
+  expect((await book(service.handle)).status).toBe(201);
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "PATCH"),
+  ).toMatchObject({
+    sendUpdates: "all",
+    conferenceDataVersion: "1",
+    body: {
+      attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
+    },
+  });
+  expect(fakeGoogle.events[0]).toMatchObject({
+    hangoutLink: "https://meet.google.com/abc-defg-hij",
+    conferenceData: {
+      createRequest: { status: { statusCode: "success" } },
+      entryPoints: [
+        {
+          entryPointType: "video",
+          uri: "https://meet.google.com/abc-defg-hij",
+        },
+      ],
+    },
+    attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
+  });
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "PATCH")!.body,
+  ).not.toHaveProperty("conferenceData");
+});
+
+test.each([
+  { location: "remote", meet_enabled: "false" },
+  { location: "in-person", meet_enabled: "true" },
+])("Bookings omit conference data for %j", async (settings) => {
+  const service = await serviceForShop(settings);
+  expect((await book(service.handle)).status).toBe(201);
+  for (const write of fakeGoogle.writes) {
+    expect(write.conferenceDataVersion).toBeNull();
+    expect(write.body).not.toHaveProperty("conferenceData");
+  }
+  expect(fakeGoogle.events[0]).not.toHaveProperty("conferenceData");
+  expect(fakeGoogle.events[0]).not.toHaveProperty("hangoutLink");
+});
+
+test("each remote Booking requests its own conference, including non-blocking Services", async () => {
+  const service = await serviceForShop({
+    location: "remote",
+    blocking: "false",
+  });
+  expect((await book(service.handle)).status).toBe(201);
+  expect(
+    (await book(service.handle, { email: "another@example.com" })).status,
+  ).toBe(201);
+  const requests = fakeGoogle.events.map(
+    (event) => event.conferenceData?.createRequest.requestId,
+  );
+  expect(requests).toEqual([expect.any(String), expect.any(String)]);
+  expect(requests[0]).not.toBe("");
+  expect(requests[1]).not.toBe("");
+  expect(requests[0]).not.toBe(requests[1]);
+});
+
 test("a guest receives a confirmed Booking with customer context and only a hashed email in private properties", async () => {
   const service = await serviceForShop();
   const response = await book(service.handle);
