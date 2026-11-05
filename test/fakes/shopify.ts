@@ -88,7 +88,12 @@ export const shopifyHandlers = [
               ? {
                   metaobjectDefinitionByType:
                     fakeShopify.serviceDefinitions.get(String(params.shop)) ??
-                    null,
+                    (fakeShopify.definitions.has(String(params.shop))
+                      ? {
+                          ...fakeShopify.definitions.get(String(params.shop)),
+                          type: "app--12345--service",
+                        }
+                      : null),
                 }
               : {}),
           },
