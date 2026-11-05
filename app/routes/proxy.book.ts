@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { randomUUID } from "node:crypto";
 import { authenticate } from "../shopify.server";
-import { storefrontService } from "../services.server";
+import { graphql, storefrontService } from "../services.server";
 import { invalid, shopSlotRules } from "../settings.server";
 import { book, type SubjectProduct } from "../booking.server";
 import { timestamp } from "../timestamp.server";
@@ -76,10 +76,18 @@ export async function action({ request }: ActionFunctionArgs) {
     if (!sp || typeof sp !== "object" || Array.isArray(sp))
       invalid("Invalid subjectProduct");
     const fields = sp as Record<string, unknown>;
-    subject = {
-      id: text(fields, "id", 100),
-      title: text(fields, "title", 500),
-    };
+    const id = text(fields, "id", 20);
+    text(fields, "title", 500);
+    if (!/^\d+$/.test(id)) invalid("Invalid subjectProduct");
+    // Never trust the client title; unknown products are ignored.
+    const { product } = await graphql<{
+      product: { title: string } | null;
+    }>(
+      admin,
+      "query SubjectProduct($id: ID!) { product(id: $id) { id title } }",
+      { id: `gid://shopify/Product/${id}` },
+    );
+    if (product) subject = { id, title: product.title };
   }
   const { service } = await storefrontService(
     admin,

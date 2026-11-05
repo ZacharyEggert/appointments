@@ -188,7 +188,7 @@ interface Definition {
   type: string;
 }
 
-async function graphql<T>(
+export async function graphql<T>(
   admin: AdminApiContext,
   query: string,
   variables = {},
