@@ -1,8 +1,11 @@
+import { action as connect } from "../app/routes/app.google.connect";
+import { loader as callback } from "../app/routes/google.callback";
+import { action as selectCalendar } from "../app/routes/app.google.calendars";
+import { fakeGoogle } from "./fakes/google";
 import { createHmac, randomUUID } from "node:crypto";
 import type { LoaderFunctionArgs } from "react-router";
 import { Session } from "@shopify/shopify-app-react-router/server";
 import { sessionStorage } from "../app/shopify.server";
-import { action as connect } from "../app/routes/app.google.connect";
 
 export const SHOP = "test-shop.myshopify.com";
 
@@ -61,6 +64,31 @@ export function routeArgs(request: Request): LoaderFunctionArgs {
     params: {},
     context: {},
   };
+}
+
+export async function resourceForShop() {
+  const response = await connect(
+    routeArgs(adminRequest("/app/google/connect", { method: "POST" })),
+  );
+  const { authorizationUrl } = await response.json();
+  fakeGoogle.grant();
+  const state = new URL(authorizationUrl).searchParams.get("state")!;
+  await callback(
+    routeArgs(
+      new Request(
+        `https://app.test/google/callback?state=${state}&code=google_code`,
+      ),
+    ),
+  );
+  const selected = await selectCalendar(
+    routeArgs(
+      adminRequest("/app/google/calendars", {
+        method: "POST",
+        body: new URLSearchParams({ calendarId: "merchant@example.com" }),
+      }),
+    ),
+  );
+  return (await selected.json()).resource;
 }
 
 export async function consentState(shop = SHOP) {

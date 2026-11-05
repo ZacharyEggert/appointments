@@ -52,11 +52,22 @@ model GoogleConnection {
 }
 
 model Resource {
-  id         String @id @default(cuid())
-  shop       String
-  name       String
-  calendarId String
-  timeZone   String
+  id           String @id @default(cuid())
+  shop         String
+  name         String
+  calendarId   String
+  timeZone     String
+  openingHours Json   @default("[]")
 
   @@index([shop])
+}
+
+model ShopSettings {
+  shop                 String @id
+  durationMinutes      Int    @default(30)
+  startIntervalMinutes Int    @default(15)
+  bufferBeforeMinutes  Int    @default(0)
+  bufferAfterMinutes   Int    @default(0)
+  minNoticeMinutes     Int    @default(0)
+  maxAdvanceDays       Int    @default(30)
 }
