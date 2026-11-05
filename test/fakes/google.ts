@@ -90,6 +90,19 @@ function authorized(request: Request, calendarId: string) {
     );
 }
 export const googleHandlers = [
+  http.get(eventsUrl + "/:eventId", ({ request, params }) => {
+    if (!authorized(request, String(params.calendarId)))
+      return new HttpResponse(null, { status: 401 });
+    const event = fakeGoogle.events.find(
+      (e) => e.calendarId === params.calendarId && e.id === params.eventId,
+    );
+    if (!event) return new HttpResponse(null, { status: 404 });
+    return HttpResponse.json({
+      ...event,
+      start: { dateTime: event.start },
+      end: { dateTime: event.end },
+    });
+  }),
   http.get(eventsUrl, ({ request, params }) => {
     if (!authorized(request, String(params.calendarId)))
       return new HttpResponse(null, { status: 401 });

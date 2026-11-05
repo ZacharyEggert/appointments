@@ -86,6 +86,9 @@ export async function action({ request }: ActionFunctionArgs) {
     handle,
     await shopSlotRules(session.shop),
   );
+  const proxyPath =
+    new URL(request.url).searchParams.get("path_prefix") ??
+    "/apps/appointments";
   // Signed by the app proxy; empty for guests.
   const customerId =
     new URL(request.url).searchParams.get("logged_in_customer_id") || undefined;
@@ -95,8 +98,8 @@ export async function action({ request }: ActionFunctionArgs) {
     service,
     slotStart,
     customer,
+    proxyPath,
     customerId,
-
     subject,
   );
   return Response.json(result, {
