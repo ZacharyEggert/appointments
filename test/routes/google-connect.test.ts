@@ -7,7 +7,13 @@ import {
   action as selectCalendar,
 } from "../../app/routes/app.google.calendars";
 import { fakeGoogle } from "../fakes/google";
-import { adminRequest, installShop, routeArgs } from "../helpers";
+import {
+  adminRequest,
+  installShop,
+  routeArgs,
+  consentState,
+  callbackRequest,
+} from "../helpers";
 
 beforeEach(() => installShop());
 afterEach(() => vi.useRealTimers());
@@ -32,22 +38,6 @@ test("a Shop can start top-level Google consent with the three ADR scopes and of
   });
   expect(url.searchParams.get("state")).toMatch(/^[A-Za-z0-9_-]{43}$/);
 });
-
-async function consentState() {
-  const response = await connect(
-    routeArgs(adminRequest("/app/google/connect", { method: "POST" })),
-  );
-  const { authorizationUrl } = await response.json();
-  return new URL(authorizationUrl).searchParams.get("state")!;
-}
-
-function callbackRequest(state: string, code = "google_code") {
-  return routeArgs(
-    new Request(
-      `https://app.test/google/callback?${new URLSearchParams({ state, code })}`,
-    ),
-  );
-}
 
 test("Google callback connects the authenticated Shop and never returns its credentials", async () => {
   const state = await consentState();

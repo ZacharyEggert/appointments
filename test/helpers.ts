@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import type { LoaderFunctionArgs } from "react-router";
 import { Session } from "@shopify/shopify-app-react-router/server";
 import { sessionStorage } from "../app/shopify.server";
+import { action as connect } from "../app/routes/app.google.connect";
 
 export const SHOP = "test-shop.myshopify.com";
 
@@ -60,4 +61,42 @@ export function routeArgs(request: Request): LoaderFunctionArgs {
     params: {},
     context: {},
   };
+}
+
+export async function consentState(shop = SHOP) {
+  const response = await connect(
+    routeArgs(adminRequest("/app/google/connect", { method: "POST" }, shop)),
+  );
+  const { authorizationUrl } = await response.json();
+  return new URL(authorizationUrl).searchParams.get("state")!;
+}
+
+export function callbackRequest(state: string, code = "google_code") {
+  return routeArgs(
+    new Request(
+      `https://app.test/google/callback?${new URLSearchParams({ state, code })}`,
+    ),
+  );
+}
+
+export function webhookRequest(
+  topic: string,
+  payload: unknown = {},
+  shop = SHOP,
+) {
+  const body = JSON.stringify(payload);
+  return new Request(`https://app.test/webhooks/${topic}`, {
+    method: "POST",
+    body,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Topic": topic,
+      "X-Shopify-Shop-Domain": shop,
+      "X-Shopify-API-Version": "2026-10",
+      "X-Shopify-Webhook-Id": randomUUID(),
+      "X-Shopify-Hmac-Sha256": createHmac("sha256", "test_secret")
+        .update(body)
+        .digest("base64"),
+    },
+  });
 }
