@@ -1,7 +1,23 @@
+/* Block settings set --appt-*; unset accent colors fall back to the theme. */
 .appt-widget {
+  --appt-gap: 16px;
+  --appt-radius: 4px;
   display: block;
   color: inherit;
   font: inherit;
+}
+
+.appt-widget > * {
+  margin-block: 0;
+}
+
+.appt-widget > * + * {
+  margin-block-start: var(--appt-gap);
+}
+
+.appt-widget > p:empty,
+.appt-widget__slots:empty {
+  display: none;
 }
 
 .appt-widget__honeypot {
@@ -15,7 +31,7 @@
 .appt-widget__controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: var(--appt-gap);
 }
 
 .appt-widget__controls > div {
@@ -35,7 +51,7 @@
   max-width: 100%;
   min-height: 44px;
   border: 1px solid currentColor;
-  border-radius: 0.25rem;
+  border-radius: var(--appt-radius);
   padding: 0.6rem 0.8rem;
   background: transparent;
   color: inherit;
@@ -48,18 +64,16 @@
   width: 100%;
 }
 
-.appt-widget form {
-  margin-block-start: 1rem;
-}
-
 .appt-widget fieldset {
+  margin: 0;
   border: 1px solid currentColor;
-  padding: 1rem;
+  border-radius: var(--appt-radius);
+  padding: var(--appt-gap);
 }
 
 .appt-widget fieldset input,
 .appt-widget fieldset textarea {
-  margin-block-end: 1rem;
+  margin-block-end: var(--appt-gap);
 }
 
 .appt-widget :disabled {
@@ -70,7 +84,7 @@
 .appt-widget__slots {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: calc(var(--appt-gap) / 2);
 }
 
 .appt-widget button {
@@ -78,8 +92,15 @@
   text-align: start;
 }
 
+.appt-widget button[aria-pressed="true"],
+.appt-widget button[type="submit"] {
+  border-color: var(--appt-accent, currentColor);
+  background: var(--appt-accent, transparent);
+  color: var(--appt-on-accent, inherit);
+}
+
 .appt-widget button[aria-pressed="true"] {
-  outline: 2px solid currentColor;
+  outline: 2px solid var(--appt-accent, currentColor);
   outline-offset: 2px;
   font-weight: bold;
 }

@@ -65,9 +65,12 @@ export default function Bookings() {
     );
   return (
     <s-page heading="Bookings">
-      <s-section>
+      <s-section padding={bookings.length ? "none" : "base"}>
         {bookings.length === 0 ? (
-          <s-paragraph>No upcoming Bookings.</s-paragraph>
+          <s-paragraph color="subdued">
+            No upcoming Bookings. New Bookings appear here and in Google
+            Calendar.
+          </s-paragraph>
         ) : (
           <s-table>
             <s-table-header-row>
@@ -80,10 +83,13 @@ export default function Bookings() {
               {bookings.map((b) => (
                 <s-table-row key={b.id}>
                   <s-table-cell>
-                    {new Date(b.start).toLocaleString()}
+                    {new Date(b.start).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
                   </s-table-cell>
                   <s-table-cell>{b.service}</s-table-cell>
-                  <s-table-cell>{b.customer}</s-table-cell>
+                  <s-table-cell>{b.customer || "—"}</s-table-cell>
                   <s-table-cell>{b.product ?? "—"}</s-table-cell>
                 </s-table-row>
               ))}
