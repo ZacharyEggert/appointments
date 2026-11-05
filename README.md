@@ -83,6 +83,27 @@ The route uses Shopify's proxy signature/timestamp verifier and the installed Sh
 
 Tests cover these responses at the route seam, extending the existing network fakes. Pure Availability tests cover split shifts, closed days, midnight, touching busy boundaries, DST gaps, and a half-hour DST jump. The fake excludes transparent/cancelled events from free/busy; a live Google smoke check of transparent-event semantics remains unperformed (ADR-0006). No storefront UI is part of #3.
 
+## Pick-a-Service block (#15)
+
+The `extensions/booking` theme app extension provides **Pick a Service**. After deploying the app extension, add that block to a compatible theme section. It lists all published Services by default. To narrow it, enter exact Service handles separated by commas in **Service handles**; a handle is the last segment of the Service page URL. Draft, deleted, or unmatched handles never make other Services appear. The heading is configurable. If the merchant customizes Shopify's app proxy URL, update **App proxy path** from its default `/apps/appointments`.
+
+The shared vanilla-JS `appt-widget.js` initializes each `<appointments-widget>` independently, including blocks inserted/reloaded in the theme editor. Customers choose a Service, date, and available Slot. This ticket stops at Slot selection; it does not submit a Booking. Service descriptions and Price notes render as text. Loading, empty, and unavailable states are announced to assistive technology, and Slot buttons work with the keyboard.
+
+`GET /proxy/services` uses the same Shopify proxy authentication and offline session as Slots. It returns `{ services: [{ handle, name, description, priceNote }] }`, excludes drafts, follows every Shopify page, and sends `Cache-Control: no-store`. Optional `services=<comma-separated handles>` narrows the published list by exact match; blank means all. Missing installation returns 503, invalid signature returns 400, and Shopify lookup failures return 502. Resource IDs and internal Slot rules are not exposed. **Deviation from ADR-0007's rendering approach:** the list loads via the proxy rather than a Liquid metaobject loop, avoiding the loop's page-size limit and exercising publication/filtering at the agreed HTTP test seam. Metaobjects remain the source of truth.
+
+The widget requests Slots with the browser IANA timezone, then uses only the returned `timeZone` for display and date filtering. The chosen date refers to that display timezone (shop timezone for in-person; browser timezone for remote). The request spans the previous UTC day through three days after the chosen UTC midnight, covering every IANA offset, DST changes, and full-day Slot ends. Results are filtered to starts on the chosen local date. Each displayed time includes its UTC offset, distinguishing repeated DST hours; the IANA timezone is also labelled above the Slots. Stale requests are aborted on selection changes and block removal.
+
+Local verification (no Shopify login required):
+
+```sh
+TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_15 pnpm test
+pnpm typecheck
+pnpm shopify theme check --path extensions/booking --config theme-check:theme-app-extension --no-input --fail-level warning
+gzip -c extensions/booking/assets/appt-widget.js | wc -c
+```
+
+The single JS asset must stay at most 10 KB compressed. The route tests reuse the existing MSW/real-Postgres harness. Per the confirmed test seams, Liquid/client behavior remains a manual dev-store check: add the block, verify all/narrowed published Services, select a Service/date, compare in-person/remote timezone labels and local dates (including DST), exercise empty/disconnected states, and reload multiple blocks in the theme editor. These manual checks have not been performed. No new dependencies or migrations are required.
+
 ## Shop lifecycle
 
 `app/uninstalled` and `shop/redact` use Shopify's webhook authentication, then revoke any saved Google refresh token and delete that Shop's Google connection, pending OAuth states, Resources, and Shopify sessions in one transaction. No Google Calendar event API is called. Revocation is best-effort with a 1.5-second timeout; failures are logged without credentials, and local deletion continues. Already-invalid tokens are accepted. Database deletion failures propagate so Shopify can retry instead of acknowledging incomplete cleanup. When adding Shop-owned tables, extend `app/shop-lifecycle.server.ts` and its route scenarios to delete those rows too.
