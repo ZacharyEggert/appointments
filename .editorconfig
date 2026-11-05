@@ -13,3 +13,8 @@ trim_trailing_whitespace = true
 # See https://daringfireball.net/projects/markdown/syntax#p
 [*.md]
 trim_trailing_whitespace = false
+
+# ponytail: tabs keep the widget under Shopify's 10,000 B raw app-block JS limit
+# without a minify step; add one (esbuild) if it grows past ~9.5 KB again.
+[extensions/booking/assets/appt-widget.js]
+indent_style = tab
