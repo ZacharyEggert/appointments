@@ -1,6 +1,6 @@
-client_id = ""
+client_id = "531e1d8949a8b4001f857db31fedfa7f"
 name = "Appointments"
-application_url = "https://appointments.example.com"
+application_url = "https://shopify-appointments.ex-nihilo.org"
 embedded = true
 
 [build]
@@ -12,7 +12,7 @@ scopes = "write_metaobject_definitions,write_metaobjects,read_metaobjects,read_p
 use_legacy_install_flow = false
 
 [auth]
-redirect_urls = ["https://appointments.example.com/auth/callback"]
+redirect_urls = ["https://shopify-appointments.ex-nihilo.org/auth/callback"]
 
 [webhooks]
 api_version = "2026-10"
