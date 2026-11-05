@@ -1,9 +1,11 @@
 import type { ActionFunctionArgs } from "react-router";
+import { randomUUID } from "node:crypto";
 import { authenticate } from "../shopify.server";
 import { storefrontService } from "../services.server";
 import { invalid, shopSlotRules } from "../settings.server";
 import { book, type SubjectProduct } from "../booking.server";
 import { timestamp } from "../timestamp.server";
+import { bookingRetryAfter } from "../booking-abuse.server";
 
 function text(
   input: Record<string, unknown>,
@@ -37,6 +39,11 @@ export async function action({ request }: ActionFunctionArgs) {
   }
   if (!input || typeof input !== "object" || Array.isArray(input))
     invalid("Provide Booking details");
+  if (input.website)
+    return Response.json(
+      { status: "confirmed", eventId: randomUUID().replaceAll("-", "") },
+      { status: 201, headers: { "Cache-Control": "no-store" } },
+    );
   const handle = text(input, "service", 255);
   const slotStart = timestamp(text(input, "slotStart", 40));
   const customer = {
@@ -47,6 +54,22 @@ export async function action({ request }: ActionFunctionArgs) {
   };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
     invalid("Invalid email");
+  const retryAfter = await bookingRetryAfter(
+    session.shop,
+    request.headers.get("X-Forwarded-For"),
+    customer.email,
+  );
+  if (retryAfter)
+    return Response.json(
+      { status: "rate-limited" },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(retryAfter),
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   let subject: SubjectProduct | undefined;
   if (input.subjectProduct !== undefined) {
     const sp = input.subjectProduct;

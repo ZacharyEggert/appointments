@@ -26,6 +26,10 @@
   <form data-appt-booking hidden>
     <fieldset>
       <legend>Guest details</legend>
+      <div class="appt-widget__honeypot" aria-hidden="true">
+        <label for="appt-website-{{ block.id }}">Leave this field empty</label>
+        <input id="appt-website-{{ block.id }}" name="website" tabindex="-1" autocomplete="off">
+      </div>
       <label for="appt-name-{{ block.id }}">Name</label>
       <input id="appt-name-{{ block.id }}" name="name" autocomplete="name" maxlength="200" required>
       <label for="appt-email-{{ block.id }}">Email</label>
