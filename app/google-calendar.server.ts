@@ -314,6 +314,8 @@ export async function completeGoogleConnection(url: URL) {
     }),
   });
   if (!response.ok)
+    await logGoogleError("code exchange", pending.shop, response);
+  if (!response.ok)
     throw new Response(
       "Google connection failed. Please try connecting again.",
       { status: 502 },
@@ -387,6 +389,7 @@ async function accessTokenFor(shop: string, refresh = false) {
     }),
   });
   if (!response.ok) {
+    await logGoogleError("token refresh", shop, response);
     if (response.status === 400) {
       const error = (await response.json()) as { error?: string };
       if (error.error === "invalid_grant")
@@ -413,6 +416,19 @@ async function accessTokenFor(shop: string, refresh = false) {
     },
   });
   return { token: token.access_token, connection: updated };
+}
+
+// Google error bodies carry status/reason only, never tokens; safe to log.
+async function logGoogleError(what: string, shop: string, response: Response) {
+  const body = await response
+    .clone()
+    .text()
+    .catch(() => "");
+  console.error(`[google] ${what} failed`, {
+    shop,
+    status: response.status,
+    body: body.slice(0, 500),
+  });
 }
 
 async function googleFetch(
@@ -447,6 +463,12 @@ async function googleFetch(
     )
       await disconnected(shop, credentials.connection.refreshToken);
   }
+  if (!response.ok)
+    await logGoogleError(
+      `${init.method ?? "GET"} ${new URL(url).pathname}`,
+      shop,
+      response,
+    );
   return response;
 }
 
