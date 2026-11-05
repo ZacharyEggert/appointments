@@ -3,6 +3,91 @@ import prisma from "./db.server";
 import { decryptToken, encryptToken } from "./token-encryption.server";
 import type { Interval } from "./availability";
 
+export interface GoogleEvent {
+  id: string;
+  created: string;
+  status?: string;
+  transparency?: string;
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
+}
+
+export async function writeGoogleEvent(
+  shop: string,
+  calendarId: string,
+  body: Record<string, unknown>,
+  eventId?: string,
+): Promise<GoogleEvent> {
+  const token = await accessTokenFor(shop);
+  const url = new URL(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ""}`,
+  );
+  url.searchParams.set("sendUpdates", eventId ? "all" : "none");
+  const response = await fetch(url, {
+    method: eventId ? "PATCH" : "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error("Google event write failed");
+  return response.json();
+}
+
+export async function overlappingGoogleEvents(
+  shop: string,
+  calendarId: string,
+  from: Date,
+  to: Date,
+) {
+  const token = await accessTokenFor(shop);
+  const events: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    );
+    url.search = new URLSearchParams({
+      timeMin: from.toISOString(),
+      timeMax: to.toISOString(),
+      singleEvents: "true",
+      showDeleted: "false",
+      ...(pageToken ? { pageToken } : {}),
+    }).toString();
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error("Google event lookup failed");
+    const result = (await response.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+    };
+    if (!Array.isArray(result.items))
+      throw new Error("Invalid Google event list");
+    events.push(...result.items);
+    pageToken = result.nextPageToken;
+  } while (pageToken);
+  return events;
+}
+
+export async function deleteGoogleEvent(
+  shop: string,
+  calendarId: string,
+  eventId: string,
+) {
+  const token = await accessTokenFor(shop);
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok && response.status !== 404 && response.status !== 410)
+    throw new Error("Google event cleanup failed");
+}
+
 export async function googleBusy(
   shop: string,
   calendarId: string,

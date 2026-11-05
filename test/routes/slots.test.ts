@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { loader } from "../../app/routes/proxy.slots";
 import { action as saveSettings } from "../../app/routes/app.settings";
-import { action as changeService } from "../../app/routes/app.services";
-import { defaultSlotRules } from "../../app/slot-rules";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
 import { http, HttpResponse } from "msw";
@@ -11,7 +9,7 @@ import {
   adminRequest,
   installShop,
   proxyRequest,
-  resourceForShop,
+  serviceForShop,
   routeArgs,
   SHOP,
 } from "../helpers";
@@ -22,50 +20,6 @@ beforeEach(async () => {
   await installShop();
 });
 afterEach(() => vi.useRealTimers());
-
-async function offering(
-  overrides: Record<string, string> = {},
-  openingHours = [{ dayOfWeek: 1, start: "09:00", end: "10:00" }],
-) {
-  const resource = await resourceForShop();
-  await saveSettings(
-    routeArgs(
-      adminRequest("/app/settings", {
-        method: "POST",
-        body: new URLSearchParams({
-          settings: JSON.stringify({
-            resourceId: resource.id,
-            openingHours,
-            slotRules: defaultSlotRules,
-          }),
-        }),
-      }),
-    ),
-  );
-  const created = await changeService(
-    routeArgs(
-      adminRequest("/app/services", {
-        method: "POST",
-        body: new URLSearchParams({
-          intent: "create",
-          name: "Lesson",
-          resource_id: resource.id,
-          ...overrides,
-        }),
-      }),
-    ),
-  );
-  const { metaobject } = await created.json();
-  await changeService(
-    routeArgs(
-      adminRequest("/app/services", {
-        method: "POST",
-        body: new URLSearchParams({ intent: "publish", id: metaobject.id }),
-      }),
-    ),
-  );
-  return { ...metaobject, resource };
-}
 
 function slots(service: string, query: Record<string, string> = {}) {
   return loader(
@@ -89,7 +43,7 @@ test("unsigned proxy requests cannot read Slots", async () => {
 });
 
 test("a signed proxy request returns Slots within Opening hours and the in-person display timezone", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   const response = await slots(service.handle);
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
@@ -104,7 +58,7 @@ test("a signed proxy request returns Slots within Opening hours and the in-perso
 });
 
 test("Google busy removes overlapping Slots while transparent and cancelled events leave availability", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   fakeGoogle.events.push(
     {
       calendarId: service.resource.calendarId,
@@ -135,7 +89,7 @@ test("Google busy removes overlapping Slots while transparent and cancelled even
 });
 
 test("Service buffers fit inside Opening hours and start intervals stay anchored to opening time", async () => {
-  const service = await offering({
+  const service = await serviceForShop({
     start_interval_minutes: "20",
     buffer_before_minutes: "5",
     buffer_after_minutes: "5",
@@ -146,7 +100,7 @@ test("Service buffers fit inside Opening hours and start intervals stay anchored
 });
 
 test("busy outside the requested range still blocks a Slot buffer", async () => {
-  const service = await offering({
+  const service = await serviceForShop({
     buffer_before_minutes: "5",
     buffer_after_minutes: "5",
   });
@@ -168,7 +122,7 @@ test("busy outside the requested range still blocks a Slot buffer", async () => 
 });
 
 test("minimum notice includes its boundary and excludes earlier Slots", async () => {
-  const service = await offering({ min_notice_minutes: "75" });
+  const service = await serviceForShop({ min_notice_minutes: "75" });
   expect((await (await slots(service.handle)).json()).slots).toEqual([
     { start: "2026-11-09T17:15:00.000Z", end: "2026-11-09T17:45:00.000Z" },
     { start: "2026-11-09T17:30:00.000Z", end: "2026-11-09T18:00:00.000Z" },
@@ -176,7 +130,7 @@ test("minimum notice includes its boundary and excludes earlier Slots", async ()
 });
 
 test("maximum advance includes its boundary and excludes later starts", async () => {
-  const service = await offering({ max_advance_days: "7" });
+  const service = await serviceForShop({ max_advance_days: "7" });
   vi.setSystemTime(new Date("2026-11-09T17:15:00Z"));
   expect(
     (
@@ -194,7 +148,7 @@ test("maximum advance includes its boundary and excludes later starts", async ()
 });
 
 test("remote Slots carry the browser display timezone while Opening hours stay in the Resource timezone", async () => {
-  const service = await offering({ location: "remote" });
+  const service = await serviceForShop({ location: "remote" });
   fakeShopify.shop.ianaTimezone = "America/New_York";
   const result = await (
     await slots(service.handle, { timezone: "Asia/Tokyo" })
@@ -208,7 +162,7 @@ test("remote Slots carry the browser display timezone while Opening hours stay i
 
 test("spring DST skips nonexistent starts and keeps elapsed duration inside local Opening hours", async () => {
   vi.setSystemTime(new Date("2026-03-07T16:00:00Z"));
-  const service = await offering(
+  const service = await serviceForShop(
     { duration_minutes: "60", start_interval_minutes: "30" },
     [{ dayOfWeek: 0, start: "01:00", end: "03:00" }],
   );
@@ -228,7 +182,7 @@ test("spring DST skips nonexistent starts and keeps elapsed duration inside loca
 
 test("fall DST offers both occurrences of a repeated hour as distinct Slots", async () => {
   vi.setSystemTime(new Date("2026-10-31T16:00:00Z"));
-  const service = await offering(
+  const service = await serviceForShop(
     { duration_minutes: "60", start_interval_minutes: "30" },
     [{ dayOfWeek: 0, start: "01:00", end: "02:00" }],
   );
@@ -249,7 +203,7 @@ test("fall DST offers both occurrences of a repeated hour as distinct Slots", as
 });
 
 test("unpublished, missing, and non-Service metaobjects return 404", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   const object = fakeShopify.services.get(SHOP)![0];
   object.capabilities.publishable.status = "DRAFT";
   await expect(slots(service.handle)).rejects.toMatchObject({ status: 404 });
@@ -274,7 +228,7 @@ const invalidQueries: Record<string, string>[] = [
 test.each(invalidQueries)(
   "malformed or excessive availability ranges return 400: %j",
   async (query) => {
-    const service = await offering({ location: "remote" });
+    const service = await serviceForShop({ location: "remote" });
     await expect(slots(service.handle, query)).rejects.toMatchObject({
       status: 400,
     });
@@ -282,14 +236,14 @@ test.each(invalidQueries)(
 );
 
 test("failed Google refresh returns booking unavailable instead of an empty or open calendar", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   fakeGoogle.refreshTokens.clear();
   vi.setSystemTime(new Date("2026-11-09T17:01:00Z"));
   await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
 });
 
 test("malformed Google busy intervals fail closed", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   server.use(
     http.post("https://www.googleapis.com/calendar/v3/freeBusy", () =>
       HttpResponse.json({
@@ -307,7 +261,7 @@ test("malformed Google busy intervals fail closed", async () => {
 test.each([401, 403, 429, 500])(
   "Google HTTP %i never produces available Slots",
   async (status) => {
-    const service = await offering();
+    const service = await serviceForShop();
     server.use(
       http.post("https://www.googleapis.com/calendar/v3/freeBusy", () =>
         HttpResponse.json({ error: { code: status } }, { status }),
@@ -318,13 +272,13 @@ test.each([401, 403, 429, 500])(
 );
 
 test("Google per-calendar errors and lost access return booking unavailable", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   for (const grant of fakeGoogle.tokens.values()) grant.calendars = [];
   await expect(slots(service.handle)).rejects.toMatchObject({ status: 503 });
 });
 
 test("expired Google access refreshes before reading availability", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   fakeGoogle.tokens.clear();
   vi.setSystemTime(new Date("2026-11-09T17:01:00Z"));
   expect((await (await slots(service.handle)).json()).slots).toEqual([
@@ -355,7 +309,7 @@ test("signed proxy requests without an installed Shop return booking unavailable
 });
 
 test("a signed Shop cannot read another Shop's Service", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   const other = "other.myshopify.com";
   await installShop(other);
   await expect(
@@ -376,7 +330,7 @@ test("a signed Shop cannot read another Shop's Service", async () => {
 });
 
 test("a Service without its own Shop's Resource returns booking unavailable", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   fakeShopify.services
     .get(SHOP)![0]
     .fields.find((f) => f.key === "resource_id")!.value = "foreign-resource";
@@ -384,7 +338,7 @@ test("a Service without its own Shop's Resource returns booking unavailable", as
 });
 
 test("current shop defaults apply to a Service while explicit zero buffers remain zero", async () => {
-  const service = await offering({ buffer_before_minutes: "0" });
+  const service = await serviceForShop({ buffer_before_minutes: "0" });
   await saveSettings(
     routeArgs(
       adminRequest("/app/settings", {
@@ -411,7 +365,7 @@ test("current shop defaults apply to a Service while explicit zero buffers remai
 });
 
 test("in-person display uses shop timezone even when its Resource and browser use other timezones", async () => {
-  const service = await offering();
+  const service = await serviceForShop();
   fakeShopify.shop.ianaTimezone = "America/New_York";
   expect(
     (await (await slots(service.handle, { timezone: "Asia/Tokyo" })).json())

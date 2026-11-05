@@ -3,6 +3,8 @@
     const lifecycle = new AbortController();
     let slotRequest;
     let services = [];
+    let selectedSlot;
+    let bookingPending = false;
     const serviceInput = root.querySelector("[data-appt-service]");
     const dateInput = root.querySelector("[data-appt-date]");
     const description = root.querySelector("[data-appt-description]");
@@ -10,28 +12,41 @@
     const zone = root.querySelector("[data-appt-timezone]");
     const status = root.querySelector("[data-appt-status]");
     const slots = root.querySelector("[data-appt-slots]");
+    const form = root.querySelector("[data-appt-booking]");
     const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     // Keep requests on the storefront origin.
     const proxyPath = root.dataset.proxy || "/apps/appointments";
 
-    async function get(path, query, signal) {
-      const proxy = new URL(proxyPath.replace(/\/+$/, "") + "/", location.origin);
+    async function get(path, query, signal, body) {
+      const proxy = new URL(
+        proxyPath.replace(/\/+$/, "") + "/",
+        location.origin,
+      );
       if (proxy.origin !== location.origin || !proxyPath.startsWith("/"))
         throw new Error("Invalid app proxy path");
       const url = new URL(path, proxy);
       url.search = new URLSearchParams(query).toString();
       const response = await fetch(url, {
         signal,
-        headers: { Accept: "application/json" },
+        method: body ? "POST" : "GET",
+        headers: {
+          Accept: "application/json",
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
         cache: "no-store",
       });
+      if (body && response.status === 409) return { status: "slot-taken" };
       if (!response.ok) throw new Error("Booking unavailable");
       return response.json();
     }
 
     async function loadSlots() {
+      if (bookingPending) return;
       slotRequest?.abort();
+      selectedSlot = undefined;
+      form.hidden = true;
       slots.replaceChildren();
       zone.textContent = "";
       const service = services.find(
@@ -102,9 +117,12 @@
           endTime.textContent = timeFormat.format(new Date(slot.end));
           button.append(startTime, " – ", endTime);
           button.addEventListener("click", () => {
+            if (bookingPending) return;
             for (const other of slots.querySelectorAll("button"))
               other.setAttribute("aria-pressed", String(other === button));
             status.textContent = `Selected: ${button.textContent}.`;
+            selectedSlot = slot;
+            form.hidden = false;
           });
           fragment.append(button);
         }
@@ -121,6 +139,57 @@
       }
     }
 
+    form.addEventListener(
+      "submit",
+      async (event) => {
+        event.preventDefault();
+        if (bookingPending || !selectedSlot || !form.reportValidity()) return;
+        const details = Object.fromEntries(new FormData(form));
+        bookingPending = true;
+        serviceInput.disabled = dateInput.disabled = true;
+        form.querySelector("fieldset").disabled = true;
+        for (const button of slots.querySelectorAll("button"))
+          button.disabled = true;
+        status.textContent = "Booking your time…";
+        try {
+          const result = await get("book", {}, lifecycle.signal, {
+            service: serviceInput.value,
+            slotStart: selectedSlot.start,
+            ...details,
+          });
+          if (lifecycle.signal.aborted) return;
+          if (result.status === "confirmed") {
+            status.textContent =
+              "Booking confirmed. Google Calendar will send your invitation by email.";
+            form.reset();
+            form.hidden = true;
+            slots.replaceChildren();
+            selectedSlot = undefined;
+          } else if (result.status === "slot-taken") {
+            status.textContent =
+              "That slot was just taken. Choose another time or date.";
+            const taken = slots.querySelector('[aria-pressed="true"]');
+            taken?.remove();
+            selectedSlot = undefined;
+            form.hidden = true;
+          } else {
+            throw new Error("Booking unavailable");
+          }
+        } catch {
+          if (!lifecycle.signal.aborted)
+            status.textContent = "Booking unavailable. Please try again later.";
+        } finally {
+          bookingPending = false;
+          serviceInput.disabled = dateInput.disabled = false;
+          form.querySelector("fieldset").disabled = false;
+          for (const button of slots.querySelectorAll("button"))
+            button.disabled = false;
+        }
+      },
+      { signal: lifecycle.signal },
+    );
+
+    form.hidden = true;
     serviceInput.replaceChildren(new Option("Choose a Service", ""));
     serviceInput.disabled = true;
     dateInput.disabled = true;

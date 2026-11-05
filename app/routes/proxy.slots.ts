@@ -1,3 +1,4 @@
+import { timestamp } from "../timestamp.server";
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -6,25 +7,6 @@ import { invalid, shopSlotRules } from "../settings.server";
 import { availableSlots } from "../availability";
 import type { OpeningHours } from "../slot-rules";
 import { googleBusy } from "../google-calendar.server";
-
-function rangeDate(value: string | null) {
-  if (
-    !value ||
-    !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(
-      value,
-    )
-  )
-    invalid("Provide from/to timestamps with an explicit offset");
-  const date = new Date(value);
-  const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
-  if (
-    !Number.isFinite(date.getTime()) ||
-    !Number.isFinite(day.getTime()) ||
-    day.toISOString().slice(0, 10) !== value.slice(0, 10)
-  )
-    invalid("Invalid availability date");
-  return date;
-}
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { admin, session } = await authenticate.public.appProxy(request);
@@ -36,8 +18,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
   const handle = query.get("service");
   if (!handle || handle.length > 255) invalid("Provide a Service handle");
-  const from = rangeDate(query.get("from"));
-  const to = rangeDate(query.get("to"));
+  const from = timestamp(query.get("from"));
+  const to = timestamp(query.get("to"));
   if (from >= to || to.getTime() - from.getTime() > 31 * 86_400_000)
     invalid("Availability ranges must be positive and at most 31 days");
   const requestedTimeZone = query.get("timezone");
