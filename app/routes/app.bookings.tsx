@@ -40,8 +40,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
           e.attendees?.[0]?.displayName ??
           /^Customer: (.*)$/m.exec(e.description ?? "")?.[1] ??
           "",
-        // ponytail: product title read from ext prop; #5 decides what it writes
-        product: e.extendedProperties?.private?.productTitle ?? null,
+        // Subject product title lives in the description (see booking.server.ts)
+        product: /^Product: (.*)$/m.exec(e.description ?? "")?.[1] ?? null,
       }));
     return Response.json({ disconnected: false, bookings }, { headers });
   } catch (error) {

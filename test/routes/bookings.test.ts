@@ -26,13 +26,13 @@ function addEvent(calendarId: string, id: string, start: string, extra = {}) {
     start,
     end: new Date(Date.parse(start) + 30 * 60_000).toISOString(),
     summary: "Lesson – Jane Doe",
-    description: "Service: Lesson\nCustomer: Jane Doe",
+    description: "Service: Lesson\nCustomer: Jane Doe\nProduct: PRS Custom 24",
     attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
     extendedProperties: {
       private: {
         app: "appointments",
         shop: SHOP,
-        productTitle: "PRS Custom 24",
+        subjectProductId: "7890",
       },
     },
     ...extra,
