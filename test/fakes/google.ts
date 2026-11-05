@@ -118,7 +118,7 @@ export const googleHandlers = [
         (!url.searchParams.has("timeMax") ||
           Date.parse(e.start) < Date.parse(url.searchParams.get("timeMax")!)) &&
         (!url.searchParams.has("privateExtendedProperty") ||
-          url.searchParams.getAll("privateExtendedProperty").some((filter) => {
+          url.searchParams.getAll("privateExtendedProperty").every((filter) => {
             const separator = filter.indexOf("=");
             return (
               e.extendedProperties?.private[filter.slice(0, separator)] ===
