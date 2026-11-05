@@ -49,6 +49,7 @@ export default function App() {
         </Link>
         <Link to="/app/settings">Opening hours and Slot rules</Link>
         <Link to="/app/services">Services</Link>
+        <Link to="/app/bookings">Bookings</Link>
       </NavMenu>
       {googleStatus === "disconnected" && (
         <s-banner heading="Reconnect Google" tone="warning">

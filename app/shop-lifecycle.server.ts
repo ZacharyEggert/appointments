@@ -8,6 +8,7 @@ export async function deleteShopData(shop: string) {
     console.warn({ event: "google-revoke-failed", shop });
   }
   await db.$transaction([
+    db.bookingRateLimit.deleteMany({ where: { shop } }),
     db.googleOAuthState.deleteMany({ where: { shop } }),
     db.googleConnection.deleteMany({ where: { shop } }),
     db.resource.deleteMany({ where: { shop } }),

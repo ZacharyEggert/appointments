@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { action } from "../../app/routes/proxy.book";
+import { action as uninstall } from "../../app/routes/webhooks.app.uninstalled";
+import { action as redactShop } from "../../app/routes/webhooks.shop.redact";
+import { loader as slotsLoader } from "../../app/routes/proxy.slots";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
 import { http, HttpResponse } from "msw";
@@ -9,6 +12,7 @@ import {
   proxyRequest,
   routeArgs,
   serviceForShop,
+  webhookRequest,
   SHOP,
 } from "../helpers";
 
@@ -39,12 +43,22 @@ test("an external Google event appearing after the free/busy check wins without 
   expect(fakeGoogle.writes.every((w) => !w.body.attendees)).toBe(true);
 });
 
-function book(service: string, overrides: Record<string, unknown> = {}) {
+function book(
+  service: string,
+  overrides: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+  shop = SHOP,
+  query: Record<string, string> = {},
+) {
   return action(
     routeArgs(
-      new Request(proxyRequest("/proxy/book"), {
+      new Request(proxyRequest("/proxy/book", query, shop), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "203.0.113.10",
+          ...headers,
+        },
         body: JSON.stringify({
           service,
           slotStart: "2026-11-09T17:00:00Z",
@@ -58,6 +72,103 @@ function book(service: string, overrides: Record<string, unknown> = {}) {
     ),
   );
 }
+
+test("remote Bookings request Meet by default and confirm gracefully while creation is pending", async () => {
+  const service = await serviceForShop({ location: "remote" });
+  fakeGoogle.conferenceStatus = "pending";
+  const response = await book(service.handle);
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({
+    status: "confirmed",
+    eventId: "event1",
+  });
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "POST"),
+  ).toMatchObject({
+    sendUpdates: "none",
+    conferenceDataVersion: "1",
+    body: {
+      conferenceData: {
+        createRequest: {
+          requestId: expect.any(String),
+          conferenceSolutionKey: { type: "hangoutsMeet" },
+        },
+      },
+    },
+  });
+  expect(fakeGoogle.events[0].hangoutLink).toBeUndefined();
+  expect(fakeGoogle.events[0].conferenceData?.createRequest.status).toEqual({
+    statusCode: "pending",
+  });
+  expect(fakeGoogle.events[0].attendees).toEqual([
+    { email: "jane@example.com", displayName: "Jane Doe" },
+  ]);
+});
+
+test("a ready Meet link remains on the remote Booking when the customer is invited", async () => {
+  const service = await serviceForShop({
+    location: "remote",
+    meet_enabled: "true",
+  });
+  expect((await book(service.handle)).status).toBe(201);
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "PATCH"),
+  ).toMatchObject({
+    sendUpdates: "all",
+    conferenceDataVersion: "1",
+    body: {
+      attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
+    },
+  });
+  expect(fakeGoogle.events[0]).toMatchObject({
+    hangoutLink: "https://meet.google.com/abc-defg-hij",
+    conferenceData: {
+      createRequest: { status: { statusCode: "success" } },
+      entryPoints: [
+        {
+          entryPointType: "video",
+          uri: "https://meet.google.com/abc-defg-hij",
+        },
+      ],
+    },
+    attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
+  });
+  expect(
+    fakeGoogle.writes.find((write) => write.method === "PATCH")!.body,
+  ).not.toHaveProperty("conferenceData");
+});
+
+test.each([
+  { location: "remote", meet_enabled: "false" },
+  { location: "in-person", meet_enabled: "true" },
+])("Bookings omit conference data for %j", async (settings) => {
+  const service = await serviceForShop(settings);
+  expect((await book(service.handle)).status).toBe(201);
+  for (const write of fakeGoogle.writes) {
+    expect(write.conferenceDataVersion).toBeNull();
+    expect(write.body).not.toHaveProperty("conferenceData");
+  }
+  expect(fakeGoogle.events[0]).not.toHaveProperty("conferenceData");
+  expect(fakeGoogle.events[0]).not.toHaveProperty("hangoutLink");
+});
+
+test("each remote Booking requests its own conference, including non-blocking Services", async () => {
+  const service = await serviceForShop({
+    location: "remote",
+    blocking: "false",
+  });
+  expect((await book(service.handle)).status).toBe(201);
+  expect(
+    (await book(service.handle, { email: "another@example.com" })).status,
+  ).toBe(201);
+  const requests = fakeGoogle.events.map(
+    (event) => event.conferenceData?.createRequest.requestId,
+  );
+  expect(requests).toEqual([expect.any(String), expect.any(String)]);
+  expect(requests[0]).not.toBe("");
+  expect(requests[1]).not.toBe("");
+  expect(requests[0]).not.toBe(requests[1]);
+});
 
 test("a guest receives a confirmed Booking with customer context and only a hashed email in private properties", async () => {
   const service = await serviceForShop();
@@ -99,6 +210,205 @@ test("every confirmed Booking includes a Manage link in the customer invite", as
     ),
   );
   expect(fakeGoogle.events[0].description).toBe(invite.body.description);
+});
+
+test("a filled honeypot appears confirmed without writing an event or inviting a guest", async () => {
+  const service = await serviceForShop();
+  const response = await book(service.handle, {
+    website: "https://spam.example",
+  });
+  expect(response.status).toBe(201);
+  expect(await response.json()).toEqual({
+    status: "confirmed",
+    eventId: expect.any(String),
+  });
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  expect(fakeGoogle.events).toEqual([]);
+  expect(fakeGoogle.writes).toEqual([]);
+});
+
+test("the eleventh attempt from the same forwarded client IP is rate limited without a calendar write", async () => {
+  const service = await serviceForShop({ blocking: "false" });
+  for (let i = 0; i < 10; i++) {
+    expect(
+      (
+        await book(
+          service.handle,
+          { email: `guest${i}@example.com` },
+          {
+            "X-Forwarded-For": ` 203.0.113.10, 192.0.2.${i + 1}`,
+          },
+        )
+      ).status,
+    ).toBe(201);
+  }
+  const writes = structuredClone(fakeGoogle.writes);
+  const response = await book(service.handle, { email: "new@example.com" });
+  expect(response.status).toBe(429);
+  expect(await response.json()).toEqual({ status: "rate-limited" });
+  expect(response.headers.get("Retry-After")).toBe("900");
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  expect(fakeGoogle.events).toHaveLength(10);
+  expect(fakeGoogle.writes).toEqual(writes);
+});
+
+test("the fourth attempt for a normalized email is rate limited even from a different IP", async () => {
+  const service = await serviceForShop({ blocking: "false" });
+  for (const [i, email] of [
+    " Jane@Example.com ",
+    "jane@example.com",
+    "JANE@EXAMPLE.COM",
+  ].entries()) {
+    expect(
+      (
+        await book(
+          service.handle,
+          { email },
+          { "X-Forwarded-For": `203.0.113.${i + 1}` },
+        )
+      ).status,
+    ).toBe(201);
+  }
+  const writes = structuredClone(fakeGoogle.writes);
+  const response = await book(service.handle, { email: "jane@example.com" });
+  expect(response.status).toBe(429);
+  expect(response.headers.get("Retry-After")).toBe("900");
+  expect(fakeGoogle.events).toHaveLength(3);
+  expect(fakeGoogle.writes).toEqual(writes);
+});
+
+test.each([
+  ["2001:db8::1", "2001:0DB8:0000:0000:0000:0000:0000:0001"],
+  ["", "not-an-ip"],
+])(
+  "IP limits cannot be bypassed by equivalent or unusable forwarded addresses (%s)",
+  async (first, next) => {
+    const service = await serviceForShop({ blocking: "false" });
+    for (let i = 0; i < 10; i++) {
+      expect(
+        (
+          await book(
+            service.handle,
+            { email: `guest${i}@example.com` },
+            { "X-Forwarded-For": first },
+          )
+        ).status,
+      ).toBe(201);
+    }
+    const writes = structuredClone(fakeGoogle.writes);
+    expect(
+      (
+        await book(
+          service.handle,
+          { email: "new@example.com" },
+          { "X-Forwarded-For": next },
+        )
+      ).status,
+    ).toBe(429);
+    expect(fakeGoogle.writes).toEqual(writes);
+  },
+);
+
+test.each([
+  { topic: "app/uninstalled", cleanup: uninstall },
+  { topic: "shop/redact", cleanup: redactShop },
+])(
+  "$topic clears abuse limits before a reinstall",
+  async ({ topic, cleanup }) => {
+    const service = await serviceForShop({ blocking: "false" });
+    for (let i = 0; i < 3; i++)
+      expect((await book(service.handle)).status).toBe(201);
+    expect((await book(service.handle)).status).toBe(429);
+    expect((await cleanup(routeArgs(webhookRequest(topic)))).status).toBe(200);
+    await installShop();
+    const reinstalled = await serviceForShop({ blocking: "false" });
+    expect((await book(reinstalled.handle)).status).toBe(201);
+    expect(fakeGoogle.events).toHaveLength(4);
+  },
+);
+
+test.each(["IP", "email"])(
+  "concurrent attempts cannot exceed the %s limit",
+  async (kind) => {
+    const service = await serviceForShop({ blocking: "false" });
+    const responses = await Promise.all(
+      Array.from({ length: kind === "IP" ? 11 : 4 }, (_, i) =>
+        book(
+          service.handle,
+          {
+            email:
+              kind === "IP" ? `guest${i}@example.com` : "guest@example.com",
+          },
+          {
+            "X-Forwarded-For":
+              kind === "IP" ? "203.0.113.10" : `203.0.113.${i + 1}`,
+          },
+        ),
+      ),
+    );
+    expect(responses.map((response) => response.status).sort()).toEqual(
+      kind === "IP"
+        ? [201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 429]
+        : [201, 201, 201, 429],
+    );
+    expect(fakeGoogle.events).toHaveLength(kind === "IP" ? 10 : 3);
+    expect(fakeGoogle.writes).toHaveLength(kind === "IP" ? 20 : 6);
+  },
+);
+
+test.each(["IP", "email"])(
+  "the %s limit resets at fifteen minutes without extending on rejection",
+  async (kind) => {
+    const service = await serviceForShop({ blocking: "false" });
+    for (let i = 0; i < (kind === "IP" ? 10 : 3); i++)
+      expect(
+        (
+          await book(service.handle, {
+            email:
+              kind === "IP" ? `guest${i}@example.com` : "guest@example.com",
+          })
+        ).status,
+      ).toBe(201);
+    vi.setSystemTime(new Date("2026-11-09T16:14:59.500Z"));
+    const blocked = await book(service.handle, { email: "guest@example.com" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("1");
+    vi.setSystemTime(new Date("2026-11-09T16:15:00Z"));
+    expect(
+      (await book(service.handle, { email: "guest@example.com" })).status,
+    ).toBe(201);
+  },
+);
+
+test("Slot conflicts still count as Booking attempts", async () => {
+  const service = await serviceForShop();
+  for (let i = 0; i < 3; i++)
+    expect(
+      (await book(service.handle, { slotStart: "2026-11-09T18:00:00Z" }))
+        .status,
+    ).toBe(409);
+  expect((await book(service.handle)).status).toBe(429);
+  expect(fakeGoogle.events).toEqual([]);
+  expect(fakeGoogle.writes).toEqual([]);
+});
+
+test("one Shop's email limit does not block another Shop and cleanup leaves its limit intact", async () => {
+  const service = await serviceForShop({ blocking: "false" });
+  for (let i = 0; i < 3; i++)
+    expect((await book(service.handle)).status).toBe(201);
+  expect((await book(service.handle)).status).toBe(429);
+
+  const otherShop = "other.myshopify.com";
+  await installShop(otherShop);
+  // This Shop has no Service: reaching its lookup means the shared IP/email is allowed.
+  for (let i = 0; i < 3; i++)
+    await expect(book("missing", {}, {}, otherShop)).rejects.toMatchObject({
+      status: 404,
+    });
+  expect((await book("missing", {}, {}, otherShop)).status).toBe(429);
+  await uninstall(routeArgs(webhookRequest("app/uninstalled")));
+  expect((await book("missing", {}, {}, otherShop)).status).toBe(429);
+  expect(fakeGoogle.events).toHaveLength(3);
 });
 
 test("two concurrent guests for one Slot produce one Booking and never invite the losing guest", async () => {
@@ -168,6 +478,37 @@ test("a non-blocking Service writes transparent Bookings and leaves the Slot boo
   expect(fakeGoogle.events.every((e) => e.transparency === "transparent")).toBe(
     true,
   );
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots[0].start).toBe("2026-11-09T17:00:00.000Z");
+});
+
+test("a blocking Booking removes its Slot", async () => {
+  const service = await serviceForShop();
+  expect((await book(service.handle)).status).toBe(201);
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots.map((x: { start: string }) => x.start)).toEqual([
+    "2026-11-09T17:30:00.000Z",
+  ]);
 });
 
 test("a guest can omit optional contact fields", async () => {
@@ -281,3 +622,50 @@ test("missing, unpublished, and foreign Services cannot create Bookings", async 
   ).rejects.toMatchObject({ status: 404 });
   expect(fakeGoogle.writes).toEqual([]);
 });
+
+test("a logged-in customer's Booking stores the signed Shopify customer id; a body-supplied id is ignored", async () => {
+  const service = await serviceForShop();
+  const response = await book(
+    service.handle,
+    { customerId: "999" },
+    {},
+    SHOP,
+    { logged_in_customer_id: "123" },
+  );
+  expect(response.status).toBe(201);
+  expect(fakeGoogle.events[0].extendedProperties?.private.customerId).toBe(
+    "123",
+  );
+});
+
+test("a guest Booking has no customer id", async () => {
+  const service = await serviceForShop();
+  await book(service.handle, { customerId: "999" });
+  expect(fakeGoogle.events[0].extendedProperties?.private).not.toHaveProperty(
+    "customerId",
+  );
+});
+
+test("a Booking from a product page records the Subject product id and title in the event", async () => {
+  const service = await serviceForShop();
+  const response = await book(service.handle, {
+    subjectProduct: { id: "7890", title: "1962 Strat" },
+  });
+  expect(response.status).toBe(201);
+  const event = fakeGoogle.events[0];
+  expect(event.description).toMatch(
+    /^Service: Lesson\nCustomer: Jane Doe\nPhone: 555-1234\nNotes: Bring guitar\nProduct: 1962 Strat\n\nManage Booking: /,
+  );
+  expect(event.extendedProperties?.private.subjectProductId).toBe("7890");
+});
+
+test.each([{ id: "", title: "x" }, { id: "1", title: "x".repeat(501) }, "bad"])(
+  "invalid Subject product cannot write an event (case %#)",
+  async (subjectProduct) => {
+    const service = await serviceForShop();
+    await expect(
+      book(service.handle, { subjectProduct }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fakeGoogle.writes).toEqual([]);
+  },
+);

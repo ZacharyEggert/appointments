@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { availableSlots } from "./availability";
 import type { OpeningHours } from "./slot-rules";
 import prisma from "./db.server";
@@ -18,12 +19,19 @@ export interface Guest {
   notes: string;
 }
 
+export interface SubjectProduct {
+  id: string;
+  title: string;
+}
+
 export async function book(
   shop: string,
   service: Service,
   slotStart: Date,
   customer: Guest,
   proxyPath: string,
+  customerId?: string,
+  subject?: SubjectProduct,
 ) {
   const resource = await prisma.resource.findFirst({
     where: { id: service.resourceId, shop },
@@ -55,8 +63,19 @@ export async function book(
           }).some((slot) => slot.start === slotStart.toISOString())
         )
           return { status: "slot-taken" } as const;
-        const description = `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}`;
+        const withMeet = service.location === "remote" && service.meetEnabled;
+        const description = `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}${subject ? `\nProduct: ${subject.title}` : ""}`;
         const event = await writeGoogleEvent(shop, resource.calendarId, {
+          ...(withMeet
+            ? {
+                conferenceData: {
+                  createRequest: {
+                    requestId: randomUUID(),
+                    conferenceSolutionKey: { type: "hangoutsMeet" },
+                  },
+                },
+              }
+            : {}),
           summary: `${service.name} – ${customer.name}`,
           transparency: service.blocking ? "opaque" : "transparent",
           description,
@@ -76,6 +95,9 @@ export async function book(
               shop,
               serviceId: service.id,
               emailHash: emailHash(customer.email),
+              ...(customerId && { customerId }),
+
+              ...(subject && { subjectProductId: subject.id }),
             },
           },
         });
@@ -110,6 +132,7 @@ export async function book(
               ],
             },
             event.id,
+            withMeet,
           );
           confirmed = true;
           return { status: "confirmed", eventId: event.id } as const;

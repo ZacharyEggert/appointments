@@ -93,6 +93,10 @@ The shared vanilla-JS `appt-widget.js` initializes each `<appointments-widget>` 
 
 The widget requests Slots with the browser IANA timezone, then uses only the returned `timeZone` for display and date filtering. The chosen date refers to that display timezone (shop timezone for in-person; browser timezone for remote). The request spans the previous UTC day through three days after the chosen UTC midnight, covering every IANA offset, DST changes, and full-day Slot ends. Results are filtered to starts on the chosen local date. Each displayed time includes its UTC offset, distinguishing repeated DST hours; the IANA timezone is also labelled above the Slots. Stale requests are aborted on selection changes and block removal.
 
+Remote Services (#8) request Google Meet by default. Each provisional Booking insert sends a unique `conferenceData.createRequest` for `hangoutsMeet` with `conferenceDataVersion=1`; the attendee patch also sends version 1 to preserve conference support ([Google event reference](https://developers.google.com/workspace/calendar/api/v3/reference/events)). Turning Meet off, or choosing an in-person Service, omits both the conference body and version parameter. Conference creation can be asynchronous: a pending request still confirms the Booking and invites the guest, without requiring a ready link. Google owns conference generation on the event; the Booking response contains no Meet link and the app does not poll or run a background job.
+
+Issue #8 verification uses `TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_8 pnpm test` and `pnpm typecheck`, extending the existing fake for pending/ready conference responses. Existing Slots route tests cover remote browser timezone and in-person shop timezone. Live Google Meet generation/invite delivery and storefront timezone rendering remain manual dev-store checks and have not been performed. No dependencies or migrations were added.
+
 Local verification (no Shopify login required):
 
 ```sh
@@ -135,6 +139,18 @@ The bearer token is HMAC-SHA256 signed with `SHOPIFY_API_SECRET`, with a separat
 `POST /proxy/manage?token=...` deletes the event with `sendUpdates=all`, letting Google notify attendees and restoring availability. Race cleanup still uses `sendUpdates=none`. Missing/deleted/cancelled events show the cancelled state; revisiting or repeating cancellation sends no additional notification. Invalid tokens and foreign events return 403; unsigned proxy requests return 400; Google lookup/deletion failures return 503 without a success page.
 
 Verified at the existing route/MSW/Postgres seam with `TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_9 pnpm test` and `pnpm typecheck`. No dependencies or migrations added. Manual dev-store checks remain unperformed: follow the invite's Manage link through the live Shopify proxy (including a custom path), check the theme-rendered details/form, cancel, and verify Google's cancellation email and the reopened Slot.
+
+## Booking abuse protection (#16)
+
+Authenticated `POST /proxy/book` requests allow **10 attempts per IP and 3 per email per Shop in 15 minutes**. These defaults were chosen because #16 specifies no thresholds. Each counter's fixed window starts with its first attempt. Valid Booking input consumes both counters before any Service lookup or Google call, including attempts that later return slot-taken or unavailable. Rejected attempts do not consume counters or extend windows. HTTP 429 returns `{ "status": "rate-limited" }`, `Retry-After` in seconds (rounded up), and `Cache-Control: no-store`, without calendar writes. The widget currently shows its existing unavailable message for 429.
+
+The IP is the trimmed first `X-Forwarded-For` entry from Shopify's proxied request. IPv6 spelling is canonicalized; missing, empty, or invalid entries share an `unknown` bucket per Shop. This is best-effort protection that depends on the hosting proxy preserving Shopify's client-IP header. Email uses the same trim/lowercase normalization as Bookings. Neither raw IP nor raw email is stored in the counters: keys contain SHA-256 hashes.
+
+`BookingRateLimit` is a new operational Postgres table (an addition to ADR-0007's configuration-only inventory; Bookings still live only in Google). A short transaction advisory lock per Shop makes checking and consuming both counters atomic across processes; it is released before external API calls. The migration must be applied before serving traffic. Expired counters are deleted on that Shop's next rate-limit check; dormant Shops retain expired hashes until another attempt or lifecycle cleanup. No background job or dependency was added. Uninstall and shop redaction delete the Shop's counters.
+
+Both existing theme blocks include an optional `website` honeypot, visually hidden and excluded from keyboard/screen-reader navigation. The shared widget already submits it with the form. A filled field returns the normal 201 confirmed response shape with a synthetic event ID, before normal field validation or rate-limit checks, without an event, invite, or counter consumption. An empty or omitted field follows normal Booking behavior.
+
+Verification: `TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_16 pnpm test` and `pnpm typecheck`. Tests extend the existing route/MSW/real-Postgres harness and cover both limits, forwarded chains, IPv6, unusable headers, email normalization, concurrent requests, exact expiry, Slot conflicts, Shop isolation, lifecycle cleanup, and the honeypot. #16 has no manual-only acceptance criteria. Dev-store checks of hidden-field accessibility/autofill and live proxy IP headers remain skipped under the agreed seams.
 
 ## Shop lifecycle
 
