@@ -268,3 +268,27 @@ test("missing, unpublished, and foreign Services cannot create Bookings", async 
   ).rejects.toMatchObject({ status: 404 });
   expect(fakeGoogle.writes).toEqual([]);
 });
+
+test("a Booking from a product page records the Subject product id and title in the event", async () => {
+  const service = await serviceForShop();
+  const response = await book(service.handle, {
+    subjectProduct: { id: "7890", title: "1962 Strat" },
+  });
+  expect(response.status).toBe(201);
+  const event = fakeGoogle.events[0];
+  expect(event.description).toBe(
+    "Service: Lesson\nCustomer: Jane Doe\nPhone: 555-1234\nNotes: Bring guitar\nProduct: 1962 Strat",
+  );
+  expect(event.extendedProperties?.private.subjectProductId).toBe("7890");
+});
+
+test.each([{ id: "", title: "x" }, { id: "1", title: "x".repeat(501) }, "bad"])(
+  "invalid Subject product cannot write an event (case %#)",
+  async (subjectProduct) => {
+    const service = await serviceForShop();
+    await expect(
+      book(service.handle, { subjectProduct }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fakeGoogle.writes).toEqual([]);
+  },
+);

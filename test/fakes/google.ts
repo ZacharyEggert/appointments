@@ -92,13 +92,11 @@ export const googleHandlers = [
     );
     const page = Number(url.searchParams.get("pageToken") ?? 0);
     return HttpResponse.json({
-      items: events
-        .slice(page, page + 1)
-        .map((e) => ({
-          ...e,
-          start: { dateTime: e.start },
-          end: { dateTime: e.end },
-        })),
+      items: events.slice(page, page + 1).map((e) => ({
+        ...e,
+        start: { dateTime: e.start },
+        end: { dateTime: e.end },
+      })),
       ...(page + 1 < events.length ? { nextPageToken: String(page + 1) } : {}),
     });
   }),
