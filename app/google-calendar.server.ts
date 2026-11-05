@@ -25,6 +25,23 @@ export interface GoogleEvent {
   transparency?: string;
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
+  summary?: string;
+  extendedProperties?: { private?: Record<string, string> };
+}
+
+export async function getGoogleEvent(
+  shop: string,
+  calendarId: string,
+  eventId: string,
+): Promise<GoogleEvent | null> {
+  const response = await googleFetch(
+    shop,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+  );
+  if (response.status === 404 || response.status === 410) return null;
+  if (!response.ok) throw new Error("Google event lookup failed");
+  const event = (await response.json()) as GoogleEvent;
+  return event.status === "cancelled" ? null : event;
 }
 
 export async function writeGoogleEvent(
@@ -85,10 +102,11 @@ export async function deleteGoogleEvent(
   shop: string,
   calendarId: string,
   eventId: string,
+  sendUpdates: "none" | "all" = "none",
 ) {
   const response = await googleFetch(
     shop,
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=${sendUpdates}`,
     { method: "DELETE" },
   );
   if (!response.ok && response.status !== 404 && response.status !== 410)

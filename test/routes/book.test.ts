@@ -70,8 +70,9 @@ test("a guest receives a confirmed Booking with customer context and only a hash
     calendarId: service.resource.calendarId,
     start: "2026-11-09T17:00:00.000Z",
     end: "2026-11-09T17:30:00.000Z",
-    description:
+    description: expect.stringContaining(
       "Service: Lesson\nCustomer: Jane Doe\nPhone: 555-1234\nNotes: Bring guitar",
+    ),
     attendees: [{ email: "jane@example.com", displayName: "Jane Doe" }],
   });
   expect(fakeGoogle.events[0].extendedProperties).toEqual({
@@ -86,6 +87,18 @@ test("a guest receives a confirmed Booking with customer context and only a hash
   expect(JSON.stringify(fakeGoogle.events[0].extendedProperties)).not.toContain(
     "jane@example.com",
   );
+});
+
+test("every confirmed Booking includes a Manage link in the customer invite", async () => {
+  const service = await serviceForShop();
+  expect((await book(service.handle)).status).toBe(201);
+  const invite = fakeGoogle.writes.find((write) => write.method === "PATCH")!;
+  expect(invite.body.description).toEqual(
+    expect.stringContaining(
+      `Manage Booking: https://${SHOP}/apps/appointments/manage?token=`,
+    ),
+  );
+  expect(fakeGoogle.events[0].description).toBe(invite.body.description);
 });
 
 test("two concurrent guests for one Slot produce one Booking and never invite the losing guest", async () => {
@@ -162,7 +175,7 @@ test("a guest can omit optional contact fields", async () => {
   expect(
     (await book(service.handle, { phone: undefined, notes: undefined })).status,
   ).toBe(201);
-  expect(fakeGoogle.events[0].description).toBe(
+  expect(fakeGoogle.events[0].description).toContain(
     "Service: Lesson\nCustomer: Jane Doe\nPhone: \nNotes: ",
   );
 });

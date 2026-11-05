@@ -9,6 +9,7 @@ import {
   writeGoogleEvent,
 } from "./google-calendar.server";
 import { emailHash, normalizeEmail } from "./customer-email.server";
+import { manageLink } from "./manage-link.server";
 
 export interface Guest {
   name: string;
@@ -22,6 +23,7 @@ export async function book(
   service: Service,
   slotStart: Date,
   customer: Guest,
+  proxyPath: string,
 ) {
   const resource = await prisma.resource.findFirst({
     where: { id: service.resourceId, shop },
@@ -53,10 +55,11 @@ export async function book(
           }).some((slot) => slot.start === slotStart.toISOString())
         )
           return { status: "slot-taken" } as const;
+        const description = `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}`;
         const event = await writeGoogleEvent(shop, resource.calendarId, {
           summary: `${service.name} – ${customer.name}`,
           transparency: service.blocking ? "opaque" : "transparent",
-          description: `Service: ${service.name}\nCustomer: ${customer.name}\nPhone: ${customer.phone}\nNotes: ${customer.notes}`,
+          description,
           start: {
             dateTime: slotStart.toISOString(),
             timeZone: resource.timeZone,
@@ -98,6 +101,7 @@ export async function book(
             shop,
             resource.calendarId,
             {
+              description: `${description}\n\nManage Booking: ${manageLink(shop, resource.calendarId, event.id, proxyPath)}`,
               attendees: [
                 {
                   email: normalizeEmail(customer.email),

@@ -52,7 +52,16 @@ export async function action({ request }: ActionFunctionArgs) {
     handle,
     await shopSlotRules(session.shop),
   );
-  const result = await book(session.shop, service, slotStart, customer);
+  const proxyPath =
+    new URL(request.url).searchParams.get("path_prefix") ??
+    "/apps/appointments";
+  const result = await book(
+    session.shop,
+    service,
+    slotStart,
+    customer,
+    proxyPath,
+  );
   return Response.json(result, {
     status:
       result.status === "confirmed"
