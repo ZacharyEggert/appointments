@@ -69,6 +69,8 @@ const weekdays = [
   "Friday",
   "Saturday",
 ];
+const clockTime = /^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$/;
+let nextKey = 0;
 
 export default function Settings() {
   const { resource, slotRules } = useLoaderData<{
@@ -77,7 +79,11 @@ export default function Settings() {
       | null;
     slotRules: SlotRules;
   }>();
-  const [hours, setHours] = useState(resource?.openingHours ?? []);
+  // Field values stay in the DOM (read on submit); state only tracks rows.
+  const [hours, setHours] = useState(() =>
+    (resource?.openingHours ?? []).map((h) => ({ ...h, key: nextKey++ })),
+  );
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const save = useFetcher<{ saved: boolean }>();
   return (
     <s-page heading="Opening hours and Slot rules">
@@ -86,6 +92,18 @@ export default function Settings() {
         onSubmit={(event) => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
+          const found: Record<string, string> = {};
+          const openingHours = hours.map(({ key, dayOfWeek }) => {
+            const start = String(form.get(`start-${key}`) ?? "").trim();
+            const end = String(form.get(`end-${key}`) ?? "").trim();
+            if (!clockTime.test(start)) found[`start-${key}`] = "Use HH:MM";
+            if (!clockTime.test(end)) found[`end-${key}`] = "Use HH:MM";
+            else if (clockTime.test(start) && end <= start)
+              found[`end-${key}`] = "Must be after opening";
+            return { dayOfWeek, start, end };
+          });
+          setErrors(found);
+          if (Object.keys(found).length) return;
           const rules = Object.fromEntries(
             slotRuleFields.map((rule) => [
               rule.key,
@@ -96,7 +114,7 @@ export default function Settings() {
             {
               settings: JSON.stringify({
                 resourceId: resource?.id,
-                openingHours: hours,
+                openingHours,
                 slotRules: rules,
               }),
             },
@@ -104,119 +122,159 @@ export default function Settings() {
           );
         }}
       >
-        <s-section heading="Weekly Opening hours">
-          {resource ? (
-            <>
-              <s-paragraph>
-                {resource.name} — times in {resource.timeZone}. Days without
-                intervals are closed. Split overnight hours at midnight.
-              </s-paragraph>
-              {weekdays.map((day, dayOfWeek) => (
-                <fieldset key={day}>
-                  <legend>{day}</legend>
-                  {hours.map(
-                    (interval, index) =>
-                      interval.dayOfWeek === dayOfWeek && (
-                        <div key={index}>
-                          <label>
-                            Opens{" "}
-                            <input
-                              aria-label={`${day} opens ${index + 1}`}
-                              type="time"
-                              required
-                              value={interval.start}
-                              onChange={(event) =>
-                                setHours(
-                                  hours.map((h, i) =>
-                                    i === index
-                                      ? { ...h, start: event.target.value }
-                                      : h,
-                                  ),
-                                )
-                              }
-                            />
-                          </label>{" "}
-                          <label>
-                            Closes{" "}
-                            <input
-                              aria-label={`${day} closes ${index + 1}`}
-                              type="text"
-                              placeholder="17:00"
-                              pattern="(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)"
-                              required
-                              value={interval.end}
-                              onChange={(event) =>
-                                setHours(
-                                  hours.map((h, i) =>
-                                    i === index
-                                      ? { ...h, end: event.target.value }
-                                      : h,
-                                  ),
-                                )
-                              }
-                            />
-                          </label>{" "}
-                          <button
-                            type="button"
+        <s-stack gap="base">
+          <s-section heading="Weekly Opening hours">
+            {resource ? (
+              <s-stack gap="base">
+                <s-paragraph color="subdued">
+                  {resource.name} · times in {resource.timeZone}. Days without
+                  hours are closed. Split overnight hours at midnight; 24:00
+                  closes at end of day.
+                </s-paragraph>
+                <s-stack gap="none">
+                  {weekdays.map((day, dayOfWeek) => {
+                    const intervals = hours.filter(
+                      (h) => h.dayOfWeek === dayOfWeek,
+                    );
+                    return (
+                      <s-box
+                        key={day}
+                        paddingBlock="small-100"
+                        borderWidth={dayOfWeek ? "base none none none" : "none"}
+                        borderColor="base"
+                      >
+                        <s-grid
+                          gridTemplateColumns="@container (inline-size > 560px) 7rem 1fr auto, 1fr auto"
+                          gap="small-200 base"
+                          alignItems="start"
+                        >
+                          <s-box paddingBlock="small-200">
+                            <s-text type="strong">{day}</s-text>
+                          </s-box>
+                          <s-stack gap="small-200">
+                            {intervals.length ? (
+                              intervals.map(({ key, start, end }) => (
+                                <s-stack
+                                  key={key}
+                                  direction="inline"
+                                  gap="small-200"
+                                  alignItems="start"
+                                >
+                                  <s-box inlineSize="104px">
+                                    <s-text-field
+                                      label={`${day} opens`}
+                                      labelAccessibilityVisibility="exclusive"
+                                      name={`start-${key}`}
+                                      placeholder="09:00"
+                                      defaultValue={start}
+                                      error={errors[`start-${key}`]}
+                                      required
+                                    />
+                                  </s-box>
+                                  <s-box paddingBlock="small-200">
+                                    <s-text color="subdued">to</s-text>
+                                  </s-box>
+                                  <s-box inlineSize="104px">
+                                    <s-text-field
+                                      label={`${day} closes`}
+                                      labelAccessibilityVisibility="exclusive"
+                                      name={`end-${key}`}
+                                      placeholder="17:00"
+                                      defaultValue={end}
+                                      error={errors[`end-${key}`]}
+                                      required
+                                    />
+                                  </s-box>
+                                  <s-button
+                                    variant="tertiary"
+                                    icon="delete"
+                                    accessibilityLabel={`Remove ${day} ${start}–${end}`}
+                                    onClick={() =>
+                                      setHours(
+                                        hours.filter((h) => h.key !== key),
+                                      )
+                                    }
+                                  />
+                                </s-stack>
+                              ))
+                            ) : (
+                              <s-box paddingBlock="small-200">
+                                <s-text color="subdued">Closed</s-text>
+                              </s-box>
+                            )}
+                          </s-stack>
+                          <s-button
+                            variant="tertiary"
+                            icon="plus"
                             onClick={() =>
-                              setHours(hours.filter((_, i) => i !== index))
+                              setHours([
+                                ...hours,
+                                {
+                                  dayOfWeek,
+                                  start: "09:00",
+                                  end: "17:00",
+                                  key: nextKey++,
+                                },
+                              ])
                             }
                           >
-                            Remove interval
-                          </button>
-                        </div>
-                      ),
-                  )}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setHours([
-                        ...hours,
-                        { dayOfWeek, start: "09:00", end: "17:00" },
-                      ])
-                    }
-                  >
-                    Add interval
-                  </button>
-                </fieldset>
-              ))}
-            </>
-          ) : (
-            <s-paragraph>
-              <s-link href="/app">Choose a Resource</s-link> to set Opening
-              hours.
-            </s-paragraph>
-          )}
-        </s-section>
-        <s-section heading="Shop Slot rule defaults">
-          <s-paragraph>
-            Services inherit these values when an override is empty.
-          </s-paragraph>
-          {slotRuleFields.map((rule) => (
-            <p key={rule.key}>
-              <label>
-                {rule.label}{" "}
-                <input
-                  type="number"
-                  name={rule.key}
-                  min={rule.min}
-                  max={rule.max}
-                  step="1"
-                  required
-                  defaultValue={slotRules[rule.key]}
-                />
-              </label>
-            </p>
-          ))}
-          <s-button
-            type="submit"
-            variant="primary"
-            loading={save.state !== "idle"}
+                            Add hours
+                          </s-button>
+                        </s-grid>
+                      </s-box>
+                    );
+                  })}
+                </s-stack>
+              </s-stack>
+            ) : (
+              <s-paragraph>
+                <s-link href="/app">Choose a Resource</s-link> to set Opening
+                hours.
+              </s-paragraph>
+            )}
+          </s-section>
+          <s-section heading="Shop Slot rule defaults">
+            <s-stack gap="base">
+              <s-paragraph color="subdued">
+                Services inherit these values when their own field is empty.
+              </s-paragraph>
+              <s-grid
+                gridTemplateColumns="@container (inline-size > 640px) 1fr 1fr 1fr, @container (inline-size > 400px) 1fr 1fr, 1fr"
+                gap="base"
+              >
+                {slotRuleFields.map((rule) => (
+                  <s-number-field
+                    key={rule.key}
+                    label={rule.label}
+                    name={rule.key}
+                    min={rule.min}
+                    max={rule.max}
+                    step={1}
+                    required
+                    defaultValue={String(slotRules[rule.key])}
+                  />
+                ))}
+              </s-grid>
+            </s-stack>
+          </s-section>
+          <s-stack
+            direction="inline"
+            gap="base"
+            alignItems="center"
+            justifyContent="end"
           >
-            Save settings
-          </s-button>
-          {save.data?.saved && <p role="status">Settings saved.</p>}
-        </s-section>
+            {save.data?.saved && save.state === "idle" && (
+              <s-text tone="success">Settings saved</s-text>
+            )}
+            <s-button
+              type="submit"
+              variant="primary"
+              loading={save.state !== "idle"}
+            >
+              Save settings
+            </s-button>
+          </s-stack>
+        </s-stack>
       </save.Form>
     </s-page>
   );
@@ -225,15 +283,11 @@ export default function Settings() {
 export function ErrorBoundary() {
   const error = useRouteError();
   return (
-    <s-page heading="Could not save settings">
-      <s-section>
-        <p role="alert">
-          {isRouteErrorResponse(error)
-            ? String(error.data)
-            : "Please try again."}
-        </p>
+    <s-page heading="Opening hours and Slot rules">
+      <s-banner tone="critical" heading="Could not save settings">
+        {isRouteErrorResponse(error) ? String(error.data) : "Please try again."}{" "}
         <s-link href="/app/settings">Return to settings</s-link>
-      </s-section>
+      </s-banner>
     </s-page>
   );
 }

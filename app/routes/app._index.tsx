@@ -97,109 +97,157 @@ export default function Index() {
       void loadCalendars("/app/google/calendars");
   }, [googleStatus, loadCalendars]);
 
+  const badge =
+    googleStatus === "connected" ? (
+      <s-badge tone="success">Connected</s-badge>
+    ) : googleStatus === "disconnected" ? (
+      <s-badge tone="warning">Disconnected</s-badge>
+    ) : (
+      <s-badge>Not connected</s-badge>
+    );
+
   return (
-    <s-page heading="Appointments">
-      <s-section heading={shop.name}>
-        <s-paragraph>
-          Connect Google and choose the calendar for your Resource.
-        </s-paragraph>
-        <s-paragraph>Shop timezone: {shop.ianaTimezone}</s-paragraph>
-      </s-section>
+    <s-page heading="Setup">
       <s-section heading="Google account">
-        {disconnected && app?.googleStatus !== "disconnected" && (
-          <s-banner heading="Reconnect Google" tone="warning">
-            Booking unavailable. Reconnect Google to restore Bookings.
-          </s-banner>
-        )}
-        <s-paragraph>
-          {googleStatus === "connected"
-            ? "Google is connected."
-            : googleStatus === "disconnected"
-              ? "Google is disconnected. Please reconnect."
-              : "Connect Google to get started."}
-        </s-paragraph>
-        <connect.Form method="post" action="/app/google/connect">
-          <s-button type="submit" loading={connect.state !== "idle"}>
-            {google ? "Reconnect Google" : "Connect Google"}
-          </s-button>
-        </connect.Form>
-        {connect.data && (
-          <s-link href={connect.data.authorizationUrl} target="_top">
-            Continue to Google
-          </s-link>
-        )}
+        <s-stack gap="base">
+          {disconnected && app?.googleStatus !== "disconnected" && (
+            <s-banner heading="Reconnect Google" tone="warning">
+              Booking unavailable. Reconnect Google to restore Bookings.
+            </s-banner>
+          )}
+          <s-stack
+            direction="inline"
+            gap="base"
+            alignItems="center"
+            justifyContent="space-between"
+          >
+            <s-stack gap="small-200">
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-text type="strong">Google Calendar</s-text>
+                {badge}
+              </s-stack>
+              <s-text color="subdued">
+                {googleStatus === "connected"
+                  ? "Bookings are written to your Google Calendar."
+                  : "Connect Google to check availability and write Bookings."}
+              </s-text>
+            </s-stack>
+            <connect.Form method="post" action="/app/google/connect">
+              <s-button
+                type="submit"
+                variant={google ? "secondary" : "primary"}
+                loading={connect.state !== "idle"}
+              >
+                {google ? "Reconnect Google" : "Connect Google"}
+              </s-button>
+            </connect.Form>
+          </s-stack>
+          {connect.data && (
+            <s-banner tone="info">
+              <s-link href={connect.data.authorizationUrl} target="_top">
+                Continue to Google
+              </s-link>{" "}
+              to finish connecting.
+            </s-banner>
+          )}
+        </s-stack>
       </s-section>
       {googleStatus === "connected" && (
         <s-section heading="Resource">
-          {resource && (
-            <s-paragraph>
-              Selected calendar: {resource.name} ({resource.timeZone})
+          <s-stack gap="base">
+            <s-paragraph color="subdued">
+              The calendar customers book against; its busy times block Slots.
+              In-person times show in the shop timezone ({shop.ianaTimezone}).
             </s-paragraph>
-          )}
-          {calendarList.data ? (
-            calendarList.data.calendars.length ? (
-              <selection.Form method="post" action="/app/google/calendars">
-                <s-select
-                  label="Calendar"
-                  name="calendarId"
-                  value={calendarId}
-                  onChange={(event) => setCalendarId(event.currentTarget.value)}
-                  required
-                >
-                  <s-option value="">Choose a calendar</s-option>
-                  {calendarList.data.calendars.map((calendar) => (
-                    <s-option key={calendar.id} value={calendar.id}>
-                      {calendar.summaryOverride || calendar.summary}
-                    </s-option>
-                  ))}
-                </s-select>
-                <s-button
-                  type="submit"
-                  variant="primary"
-                  disabled={!calendarId}
-                  loading={selection.state !== "idle"}
-                >
-                  Save Resource
-                </s-button>
-              </selection.Form>
+            {calendarList.data ? (
+              calendarList.data.calendars.length ? (
+                <selection.Form method="post" action="/app/google/calendars">
+                  <s-grid
+                    gridTemplateColumns="@container (inline-size > 480px) 1fr auto, 1fr"
+                    gap="base"
+                    alignItems="end"
+                  >
+                    <s-select
+                      label="Calendar"
+                      name="calendarId"
+                      value={calendarId}
+                      onChange={(event) =>
+                        setCalendarId(event.currentTarget.value)
+                      }
+                      required
+                    >
+                      <s-option value="">Choose a calendar</s-option>
+                      {calendarList.data.calendars.map((calendar) => (
+                        <s-option key={calendar.id} value={calendar.id}>
+                          {calendar.summaryOverride || calendar.summary}
+                        </s-option>
+                      ))}
+                    </s-select>
+                    <s-button
+                      type="submit"
+                      variant="primary"
+                      loading={selection.state !== "idle"}
+                    >
+                      Save Resource
+                    </s-button>
+                  </s-grid>
+                </selection.Form>
+              ) : (
+                <s-banner tone="warning" heading="No writable calendars">
+                  Add a calendar in Google, then reconnect.
+                </s-banner>
+              )
             ) : (
-              <s-paragraph>
-                No writable calendars found. Add a calendar in Google, then
-                reconnect.
-              </s-paragraph>
-            )
-          ) : (
-            <s-paragraph>Loading calendars…</s-paragraph>
-          )}
-          {selection.data?.resource && (
-            <s-paragraph>Resource saved.</s-paragraph>
-          )}
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-spinner size="base" accessibilityLabel="Loading calendars" />
+                <s-text color="subdued">Loading calendars…</s-text>
+              </s-stack>
+            )}
+            {selection.data?.resource ? (
+              <s-text tone="success">
+                Resource saved: {selection.data.resource.name} (
+                {selection.data.resource.timeZone})
+              </s-text>
+            ) : (
+              resource && (
+                <s-text color="subdued">
+                  Current: {resource.name} ({resource.timeZone})
+                </s-text>
+              )
+            )}
+          </s-stack>
         </s-section>
       )}
       {themeEditorUrl && (
         <s-section heading="Service pages">
-          <s-paragraph>
-            One-time setup. Each Service gets its own storefront page once your
-            theme has a Service page template.
-          </s-paragraph>
-          <s-ordered-list>
-            <s-list-item>
-              {templateSetupUrl ? (
-                <s-link href={templateSetupUrl} target="_blank">
-                  Create the Service page template
-                </s-link>
-              ) : (
-                "Create a Service first, then come back to create the template"
-              )}
-              : in the theme editor, choose Create template, then Save.
-            </s-list-item>
-            <s-list-item>
-              <s-link href={themeEditorUrl} target="_blank">
-                Add the booking block
-              </s-link>{" "}
-              to that template, then Save.
-            </s-list-item>
-          </s-ordered-list>
+          <s-stack gap="base">
+            <s-paragraph color="subdued">
+              One-time setup. Each Service gets its own storefront page once
+              your theme has a Service page template.
+            </s-paragraph>
+            <s-ordered-list>
+              <s-list-item>
+                {templateSetupUrl ? (
+                  <s-link href={templateSetupUrl} target="_blank">
+                    Create the Service page template
+                  </s-link>
+                ) : (
+                  "Create a Service first, then come back to create the template"
+                )}
+                : in the theme editor, choose Create template, then Save.
+              </s-list-item>
+              <s-list-item>
+                <s-link href={themeEditorUrl} target="_blank">
+                  Add the booking block
+                </s-link>{" "}
+                to that template, then Save.
+              </s-list-item>
+            </s-ordered-list>
+            <s-paragraph color="subdued">
+              Colors, corners, spacing and which customer fields show are set
+              per block in the theme editor.
+            </s-paragraph>
+          </s-stack>
         </s-section>
       )}
     </s-page>

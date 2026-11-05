@@ -1,48 +1,4 @@
-<appointments-widget
-  class="appt-widget"
-  data-customer-name="{{ customer.name | escape }}"
-  data-customer-email="{{ customer.email | escape }}"
-  data-proxy="{{ block.settings.proxy_path | default: '/apps/appointments' | escape }}"
-  data-services="{{ block.settings.services | escape }}"
->
-  <h2>{{ block.settings.heading | escape }}</h2>
-  <div class="appt-widget__controls">
-    <div>
-      <label for="appt-service-{{ block.id }}">Service</label>
-      <select id="appt-service-{{ block.id }}" data-appt-service disabled>
-        <option value="">Choose a Service</option>
-      </select>
-    </div>
-    <div>
-      <label for="appt-date-{{ block.id }}">Date</label>
-      <input id="appt-date-{{ block.id }}" data-appt-date type="date" disabled>
-    </div>
-  </div>
-  <p data-appt-description hidden></p>
-  <p data-appt-price hidden></p>
-  <p data-appt-timezone></p>
-  <p data-appt-status role="status" aria-live="polite">Loading Services…</p>
-  <div data-appt-slots class="appt-widget__slots" role="group" aria-label="Available times"></div>
-  <form data-appt-booking hidden>
-    <fieldset>
-      <legend>Guest details</legend>
-      <div class="appt-widget__honeypot" aria-hidden="true">
-        <label for="appt-website-{{ block.id }}">Leave this field empty</label>
-        <input id="appt-website-{{ block.id }}" name="website" tabindex="-1" autocomplete="off">
-      </div>
-      <label for="appt-name-{{ block.id }}">Name</label>
-      <input id="appt-name-{{ block.id }}" name="name" autocomplete="name" maxlength="200" required>
-      <label for="appt-email-{{ block.id }}">Email</label>
-      <input id="appt-email-{{ block.id }}" name="email" type="email" autocomplete="email" maxlength="254" required>
-      <label for="appt-phone-{{ block.id }}">Phone (optional)</label>
-      <input id="appt-phone-{{ block.id }}" name="phone" type="tel" autocomplete="tel" maxlength="100">
-      <label for="appt-notes-{{ block.id }}">Notes (optional)</label>
-      <textarea id="appt-notes-{{ block.id }}" name="notes" maxlength="4000" rows="3"></textarea>
-      <button type="submit">Book selected time</button>
-    </fieldset>
-  </form>
-  <noscript>{{ 'booking.javascript_required' | t }}</noscript>
-</appointments-widget>
+{%- render 'appt-widget', block: block, heading: block.settings.heading, services: block.settings.services -%}
 
 {% schema %}
 {
@@ -69,6 +25,84 @@
       "label": "App proxy path",
       "default": "/apps/appointments",
       "info": "If you changed the app proxy URL in Shopify, enter its path here."
+    },
+    {
+      "type": "header",
+      "content": "Customer details"
+    },
+    {
+      "type": "select",
+      "id": "phone",
+      "label": "Phone field",
+      "options": [
+        {
+          "value": "hidden",
+          "label": "Hidden"
+        },
+        {
+          "value": "optional",
+          "label": "Optional"
+        },
+        {
+          "value": "required",
+          "label": "Required"
+        }
+      ],
+      "default": "optional"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_notes",
+      "label": "Show notes field",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "notes_label",
+      "label": "Notes label",
+      "default": "Notes",
+      "info": "For example: Which guitar would you like to try?"
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Book button label",
+      "default": "Book selected time"
+    },
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Accent color",
+      "info": "Fills the selected time and the Book button. Leave empty to match your theme."
+    },
+    {
+      "type": "color",
+      "id": "accent_text",
+      "label": "Text on accent color"
+    },
+    {
+      "type": "range",
+      "id": "radius",
+      "label": "Corner radius",
+      "min": 0,
+      "max": 24,
+      "step": 2,
+      "unit": "px",
+      "default": 4
+    },
+    {
+      "type": "range",
+      "id": "gap",
+      "label": "Spacing",
+      "min": 8,
+      "max": 32,
+      "step": 4,
+      "unit": "px",
+      "default": 16
     }
   ]
 }

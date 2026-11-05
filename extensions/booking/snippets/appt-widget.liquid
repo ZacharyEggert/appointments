@@ -1,0 +1,69 @@
+{%- comment -%}
+  Shared booking widget markup. Params: block, heading, services, fixed, product.
+  Style settings become CSS custom properties; unset ones fall back to the theme.
+{%- endcomment -%}
+{%- liquid
+  assign s = block.settings
+  capture style
+    if s.accent != blank
+      echo '--appt-accent:' | append: s.accent | append: ';'
+    endif
+    if s.accent_text != blank
+      echo '--appt-on-accent:' | append: s.accent_text | append: ';'
+    endif
+    echo '--appt-radius:' | append: s.radius | append: 'px;'
+    echo '--appt-gap:' | append: s.gap | append: 'px;'
+  endcapture
+-%}
+<appointments-widget
+  class="appt-widget"
+  style="{{ style | strip | escape }}"
+  data-customer-name="{{ customer.name | escape }}"
+  data-customer-email="{{ customer.email | escape }}"
+  data-proxy="{{ s.proxy_path | default: '/apps/appointments' | escape }}"
+  data-services="{{ services | escape }}"
+  {%- if fixed %} data-fixed="true"{% endif -%}
+  {%- if product %} data-product-id="{{ product.id }}" data-product-title="{{ product.title | escape }}"{% endif %}
+>
+  <h2>{{ heading | escape }}</h2>
+  <div class="appt-widget__controls">
+    <div>
+      <label for="appt-service-{{ block.id }}">Service</label>
+      <select id="appt-service-{{ block.id }}" data-appt-service disabled>
+        <option value="">Choose a Service</option>
+      </select>
+    </div>
+    <div>
+      <label for="appt-date-{{ block.id }}">Date</label>
+      <input id="appt-date-{{ block.id }}" data-appt-date type="date" disabled>
+    </div>
+  </div>
+  <p data-appt-description hidden></p>
+  <p data-appt-price hidden></p>
+  <p data-appt-timezone></p>
+  <p data-appt-status role="status" aria-live="polite">Loading Services…</p>
+  <div data-appt-slots class="appt-widget__slots" role="group" aria-label="Available times"></div>
+  <form data-appt-booking hidden>
+    <fieldset>
+      <legend>Your details</legend>
+      <div class="appt-widget__honeypot" aria-hidden="true">
+        <label for="appt-website-{{ block.id }}">Leave this field empty</label>
+        <input id="appt-website-{{ block.id }}" name="website" tabindex="-1" autocomplete="off">
+      </div>
+      <label for="appt-name-{{ block.id }}">Name</label>
+      <input id="appt-name-{{ block.id }}" name="name" autocomplete="name" maxlength="200" required>
+      <label for="appt-email-{{ block.id }}">Email</label>
+      <input id="appt-email-{{ block.id }}" name="email" type="email" autocomplete="email" maxlength="254" required>
+      {%- unless s.phone == 'hidden' %}
+      <label for="appt-phone-{{ block.id }}">Phone{% if s.phone != 'required' %} (optional){% endif %}</label>
+      <input id="appt-phone-{{ block.id }}" name="phone" type="tel" autocomplete="tel" maxlength="100"{% if s.phone == 'required' %} required{% endif %}>
+      {%- endunless %}
+      {%- if s.show_notes %}
+      <label for="appt-notes-{{ block.id }}">{{ s.notes_label | default: 'Notes' | escape }} (optional)</label>
+      <textarea id="appt-notes-{{ block.id }}" name="notes" maxlength="4000" rows="3"></textarea>
+      {%- endif %}
+      <button type="submit">{{ s.button_label | default: 'Book selected time' | escape }}</button>
+    </fieldset>
+  </form>
+  <noscript>{{ 'booking.javascript_required' | t }}</noscript>
+</appointments-widget>
