@@ -8,3 +8,4 @@ Details:
 - Definition created via Admin GraphQL (`metaobjectDefinitionCreate`), with `publishable` and `onlineStore { urlHandle: "services" }` capabilities — the online-store capability cannot be set in TOML. Look the definition up by type, never by stored GID.
 - "Active" = metaobject `publishable` status (no separate flag).
 - Resource reference = Postgres Resource id stored as a text field.
+- Note: Postgres also holds an operational `BookingRateLimit` table (hashed abuse counters); see ADR-0009 addendum.
