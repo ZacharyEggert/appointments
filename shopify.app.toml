@@ -29,7 +29,13 @@ api_version = "2026-10"
   compliance_topics = ["shop/redact"]
   uri = "/webhooks/shop/redact"
 
-# Customer compliance subscriptions and handlers are implemented in #17.
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/redact"]
+  uri = "/webhooks/customers/redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request"]
+  uri = "/webhooks/customers/data_request"
 
 [app_proxy]
 url = "/proxy"

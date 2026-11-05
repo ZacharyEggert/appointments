@@ -52,11 +52,15 @@ export async function writeGoogleEvent(
   body: Record<string, unknown>,
   eventId?: string,
   supportsConferenceData = Boolean(body.conferenceData),
+  options?: { sendUpdates: "all" | "none" },
 ): Promise<GoogleEvent> {
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ""}`,
   );
-  url.searchParams.set("sendUpdates", eventId ? "all" : "none");
+  url.searchParams.set(
+    "sendUpdates",
+    options?.sendUpdates ?? (eventId ? "all" : "none"),
+  );
   if (supportsConferenceData)
     url.searchParams.set("conferenceDataVersion", "1");
   const response = await googleFetch(shop, url, {
@@ -68,6 +72,38 @@ export async function writeGoogleEvent(
   });
   if (!response.ok) throw new Error("Google event write failed");
   return response.json();
+}
+
+export async function googleEventsByProperty(
+  shop: string,
+  calendarId: string,
+  key: string,
+  value: string,
+) {
+  const events: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    );
+    url.search = new URLSearchParams({
+      privateExtendedProperty: `${key}=${value}`,
+      singleEvents: "true",
+      showDeleted: "false",
+      ...(pageToken ? { pageToken } : {}),
+    }).toString();
+    const response = await googleFetch(shop, url);
+    if (!response.ok) throw new Error("Google event lookup failed");
+    const result = (await response.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+    };
+    if (!Array.isArray(result.items))
+      throw new Error("Invalid Google event list");
+    events.push(...result.items);
+    pageToken = result.nextPageToken;
+  } while (pageToken);
+  return events;
 }
 
 export async function overlappingGoogleEvents(
