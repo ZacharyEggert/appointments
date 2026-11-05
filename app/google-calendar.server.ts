@@ -35,11 +35,14 @@ export async function writeGoogleEvent(
   calendarId: string,
   body: Record<string, unknown>,
   eventId?: string,
+  supportsConferenceData = Boolean(body.conferenceData),
 ): Promise<GoogleEvent> {
   const url = new URL(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ""}`,
   );
   url.searchParams.set("sendUpdates", eventId ? "all" : "none");
+  if (supportsConferenceData)
+    url.searchParams.set("conferenceDataVersion", "1");
   const response = await googleFetch(shop, url, {
     method: eventId ? "PATCH" : "POST",
     headers: {

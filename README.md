@@ -93,6 +93,10 @@ The shared vanilla-JS `appt-widget.js` initializes each `<appointments-widget>` 
 
 The widget requests Slots with the browser IANA timezone, then uses only the returned `timeZone` for display and date filtering. The chosen date refers to that display timezone (shop timezone for in-person; browser timezone for remote). The request spans the previous UTC day through three days after the chosen UTC midnight, covering every IANA offset, DST changes, and full-day Slot ends. Results are filtered to starts on the chosen local date. Each displayed time includes its UTC offset, distinguishing repeated DST hours; the IANA timezone is also labelled above the Slots. Stale requests are aborted on selection changes and block removal.
 
+Remote Services (#8) request Google Meet by default. Each provisional Booking insert sends a unique `conferenceData.createRequest` for `hangoutsMeet` with `conferenceDataVersion=1`; the attendee patch also sends version 1 to preserve conference support ([Google event reference](https://developers.google.com/workspace/calendar/api/v3/reference/events)). Turning Meet off, or choosing an in-person Service, omits both the conference body and version parameter. Conference creation can be asynchronous: a pending request still confirms the Booking and invites the guest, without requiring a ready link. Google owns conference generation on the event; the Booking response contains no Meet link and the app does not poll or run a background job.
+
+Issue #8 verification uses `TEST_DATABASE_URL=postgresql://zachary@localhost:5432/appointments_test_8 pnpm test` and `pnpm typecheck`, extending the existing fake for pending/ready conference responses. Existing Slots route tests cover remote browser timezone and in-person shop timezone. Live Google Meet generation/invite delivery and storefront timezone rendering remain manual dev-store checks and have not been performed. No dependencies or migrations were added.
+
 Local verification (no Shopify login required):
 
 ```sh
