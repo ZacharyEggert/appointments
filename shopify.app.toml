@@ -1,0 +1,33 @@
+client_id = ""
+name = "Appointments"
+application_url = "https://appointments.example.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[access_scopes]
+scopes = "write_metaobject_definitions,write_metaobjects,read_metaobjects,read_products,write_app_proxy"
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = ["https://appointments.example.com/auth/callback"]
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/scopes_update"]
+  uri = "/webhooks/app/scopes_update"
+
+# Mandatory compliance subscriptions and handlers are implemented in #11/#17.
+
+[app_proxy]
+url = "/proxy"
+prefix = "apps"
+subpath = "appointments"

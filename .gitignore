@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+.cache/
+build/
+.env
+.env.*
+!.env.example
+.extensions/
+extensions/*/dist/
+.shopify/
+.shopify.lock
+.react-router/
