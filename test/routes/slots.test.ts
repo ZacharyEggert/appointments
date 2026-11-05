@@ -52,6 +52,7 @@ test("a signed proxy request returns Slots within Opening hours and the in-perso
   const response = await slots(service.handle);
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
+    display: "shop",
     timeZone: "America/Los_Angeles",
     slots: [
       { start: "2026-11-09T17:00:00.000Z", end: "2026-11-09T17:30:00.000Z" },
@@ -159,6 +160,7 @@ test("remote Slots carry the browser display timezone while Opening hours stay i
     await slots(service.handle, { timezone: "Asia/Tokyo" })
   ).json();
   expect(result.timeZone).toBe("Asia/Tokyo");
+  expect(result.display).toBe("browser");
   expect(result.slots[0]).toEqual({
     start: "2026-11-09T17:00:00.000Z",
     end: "2026-11-09T17:30:00.000Z",
@@ -529,4 +531,13 @@ test("in-person display uses shop timezone even when its Resource and browser us
     (await (await slots(service.handle, { timezone: "Asia/Tokyo" })).json())
       .timeZone,
   ).toBe("America/New_York");
+});
+
+test("in-person Slots flag shop display mode even when a browser timezone is sent", async () => {
+  const service = await serviceForShop();
+  const result = await (
+    await slots(service.handle, { timezone: "Asia/Tokyo" })
+  ).json();
+  expect(result.display).toBe("shop");
+  expect(result.timeZone).not.toBe("Asia/Tokyo");
 });

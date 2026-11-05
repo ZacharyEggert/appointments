@@ -51,12 +51,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   } catch {
     throw new Response("Booking unavailable", { status: 503 });
   }
+  const browserDisplay = service.location === "remote" && !!requestedTimeZone;
   return Response.json(
     {
-      timeZone:
-        service.location === "remote"
-          ? (requestedTimeZone ?? shopTimeZone)
-          : shopTimeZone,
+      display: browserDisplay ? "browser" : "shop",
+      timeZone: browserDisplay ? requestedTimeZone : shopTimeZone,
       slots: availableSlots({
         openingHours: resource.openingHours as unknown as OpeningHours[],
         timeZone: resource.timeZone,
