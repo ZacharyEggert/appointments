@@ -38,6 +38,14 @@ Both Google tokens are encrypted with AES-256-GCM. Keep this key with the applic
 
 In the embedded admin, choose **Connect Google**, then **Continue to Google** to authorize in the top-level window. Choose a writable calendar and save the Resource. The model supports multiple Resources; this v1 UI updates a single Resource per Shop. Its timezone comes from the selected calendar. Reconnecting a different account preserves the old selection; choose a calendar accessible to that account before using it for Bookings.
 
+Use **Opening hours and Slot rules** in the app navigation to save weekly intervals for the Resource and shop defaults. Sunday is day `0`; an omitted day is closed. Split shifts can have multiple non-overlapping intervals. Times use the Resource timezone; `24:00` is allowed only as an interval end. Split overnight hours across two days. New Resources start closed.
+
+Initial Slot rule defaults are 30 minutes duration, 15 minutes start interval, no buffers or minimum notice, and 30 days maximum advance. Saving defaults persists them in Postgres (`ShopSettings`); Opening hours live on `Resource.openingHours` as `[{ dayOfWeek, start, end }]`. Duration and start interval accept 5–1440 minutes; buffers accept 0–1440 minutes; maximum advance accepts 1–3650 days.
+
+Use **Services** to create drafts, edit, publish/unpublish, or delete offerings. Empty per-Service Slot rules inherit the current shop defaults, including duration; explicit zero buffers/notice remain zero. Blocking and Google Meet default on; location defaults to in-person, and Meet applies to remote Services. Price note is display text only. Each Service references the selected Resource. Services are stored only in Shopify's `$app:service` metaobjects. The app finds the definition by type on each Services load/action and creates it if missing, with publishable, renderable, onlineStore (`services`), and public storefront access. Concurrent setup tolerates a type-already-exists response. API definition errors (including a conflicting `services` URL handle) surface in the admin.
+
+Service edits use the Admin API's full-replacement `values` input so clearing overrides restores inheritance ([Shopify reference](https://shopify.dev/docs/api/admin-graphql/latest/input-objects/MetaobjectUpdateInput)). Publish/unpublish changes only the publishable status. Theme template setup and storefront blocks are subsequent work (#4); no production Shopify calls are needed for tests.
+
 ## Tests
 
 ```sh
@@ -52,11 +60,15 @@ Tests use real local Postgres, defaulting to `postgresql://zachary@localhost:543
 TEST_DATABASE_URL=postgresql://your_user@localhost:5432/appointments_test_3 pnpm test
 ```
 
+Issue #12 uses `appointments_test_12` with that override. Generate Prisma Client after installing dependencies or changing the schema. In a restricted workspace, use `XDG_CACHE_HOME="$PWD/node_modules/.cache" pnpm prisma generate`.
+
 The harness accepts only database names matching `appointments_test` or `appointments_test_<number>` and ignores the development `DATABASE_URL`. It applies migrations once per run and truncates application tables before each test. Do not put non-test data there. Test files run serially; separate worktrees can run in parallel with separate databases. Prisma's test migration process uses `node_modules/.cache` if `XDG_CACHE_HOME` is unset, keeping the engine cache writable in restricted workspaces.
 
 The agreed seam is the route loader/action called with real HTTP Requests. Tests use real Shopify JWT verification and Prisma session storage. MSW intercepts Shopify Admin GraphQL and Google's token/calendar-list endpoints, with stateful grants, issued access/refresh tokens, account calendar lists, and pagination. Unhandled network traffic fails. MSW starts before importing the Shopify adapter, which captures `fetch` during initialization. Extend these same fakes and `test/helpers.ts` for later tickets rather than adding another harness. Event operations and the remaining Google client are subsequent work.
 
 The route scenarios cover consent, scope rejection, callback persistence, calendar pagination/filtering, Resource selection, refresh after reconnect, expired/tampered/replayed state, Shop isolation, and concurrent selection. They do not query database state for assertions.
+
+Opening hours/Services scenarios cover weekly split shifts, closed days, validation, shop defaults and clearing overrides, all Service fields and lifecycle operations, definition reinstall/concurrency, pagination, Shopify errors, and Shop/type isolation. They extend the same stateful Shopify MSW fake and authenticated route helpers.
 
 ## Runtime
 
