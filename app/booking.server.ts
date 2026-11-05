@@ -27,6 +27,8 @@ export async function book(
   service: Service,
   slotStart: Date,
   customer: Guest,
+  customerId?: string,
+
   subject?: SubjectProduct,
 ) {
   const resource = await prisma.resource.findFirst({
@@ -79,6 +81,8 @@ export async function book(
               shop,
               serviceId: service.id,
               emailHash: emailHash(customer.email),
+              ...(customerId && { customerId }),
+
               ...(subject && { subjectProductId: subject.id }),
             },
           },

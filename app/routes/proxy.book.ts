@@ -63,11 +63,17 @@ export async function action({ request }: ActionFunctionArgs) {
     handle,
     await shopSlotRules(session.shop),
   );
+  // Signed by the app proxy; empty for guests.
+  const customerId =
+    new URL(request.url).searchParams.get("logged_in_customer_id") || undefined;
+
   const result = await book(
     session.shop,
     service,
     slotStart,
     customer,
+    customerId,
+
     subject,
   );
   return Response.json(result, {
