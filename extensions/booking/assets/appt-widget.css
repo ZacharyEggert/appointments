@@ -1,0 +1,65 @@
+.appt-widget {
+  display: block;
+  color: inherit;
+  font: inherit;
+}
+
+.appt-widget__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.appt-widget__controls > div {
+  flex: 1 1 12rem;
+}
+
+.appt-widget label {
+  display: block;
+  margin-block-end: 0.4rem;
+}
+
+.appt-widget select,
+.appt-widget input,
+.appt-widget button {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 44px;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+  padding: 0.6rem 0.8rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.appt-widget select,
+.appt-widget input {
+  width: 100%;
+}
+
+.appt-widget__slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.appt-widget button {
+  cursor: pointer;
+  text-align: start;
+}
+
+.appt-widget button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  font-weight: bold;
+}
+
+.appt-widget :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
+.appt-widget [data-appt-description] {
+  white-space: pre-line;
+}
