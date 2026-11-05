@@ -19,6 +19,7 @@ interface FakeEvent {
   created?: string;
   summary?: string;
   description?: string;
+  location?: string;
   attendees?: { email: string; displayName?: string }[];
   extendedProperties?: { private: Record<string, string> };
   calendarId: string;
@@ -87,18 +88,26 @@ export const googleHandlers = [
       (e) =>
         e.calendarId === params.calendarId &&
         e.status !== "cancelled" &&
-        Date.parse(e.end) > Date.parse(url.searchParams.get("timeMin")!) &&
-        Date.parse(e.start) < Date.parse(url.searchParams.get("timeMax")!),
+        (!url.searchParams.has("timeMin") ||
+          Date.parse(e.end) > Date.parse(url.searchParams.get("timeMin")!)) &&
+        (!url.searchParams.has("timeMax") ||
+          Date.parse(e.start) < Date.parse(url.searchParams.get("timeMax")!)) &&
+        (!url.searchParams.has("privateExtendedProperty") ||
+          url.searchParams.getAll("privateExtendedProperty").some((filter) => {
+            const separator = filter.indexOf("=");
+            return (
+              e.extendedProperties?.private[filter.slice(0, separator)] ===
+              filter.slice(separator + 1)
+            );
+          })),
     );
     const page = Number(url.searchParams.get("pageToken") ?? 0);
     return HttpResponse.json({
-      items: events
-        .slice(page, page + 1)
-        .map((e) => ({
-          ...e,
-          start: { dateTime: e.start },
-          end: { dateTime: e.end },
-        })),
+      items: events.slice(page, page + 1).map((e) => ({
+        ...e,
+        start: { dateTime: e.start },
+        end: { dateTime: e.end },
+      })),
       ...(page + 1 < events.length ? { nextPageToken: String(page + 1) } : {}),
     });
   }),
@@ -157,7 +166,19 @@ export const googleHandlers = [
       sendUpdates: new URL(request.url).searchParams.get("sendUpdates"),
       body,
     });
-    Object.assign(event, body);
+    const { extendedProperties, ...fields } = body;
+    Object.assign(event, fields);
+    if (extendedProperties) {
+      const patch = extendedProperties as {
+        private?: Record<string, string | null>;
+      };
+      const properties = { ...event.extendedProperties?.private };
+      for (const [key, value] of Object.entries(patch.private ?? {})) {
+        if (value === null) delete properties[key];
+        else properties[key] = value;
+      }
+      event.extendedProperties = { private: properties };
+    }
     return HttpResponse.json({
       ...event,
       start: { dateTime: event.start },
