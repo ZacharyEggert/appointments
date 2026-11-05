@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { action } from "../../app/routes/proxy.book";
+import { loader as slotsLoader } from "../../app/routes/proxy.slots";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
 import { http, HttpResponse } from "msw";
@@ -39,10 +40,14 @@ test("an external Google event appearing after the free/busy check wins without 
   expect(fakeGoogle.writes.every((w) => !w.body.attendees)).toBe(true);
 });
 
-function book(service: string, overrides: Record<string, unknown> = {}) {
+function book(
+  service: string,
+  overrides: Record<string, unknown> = {},
+  query: Record<string, string> = {},
+) {
   return action(
     routeArgs(
-      new Request(proxyRequest("/proxy/book"), {
+      new Request(proxyRequest("/proxy/book", query), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -252,6 +257,37 @@ test("a non-blocking Service writes transparent Bookings and leaves the Slot boo
   expect(fakeGoogle.events.every((e) => e.transparency === "transparent")).toBe(
     true,
   );
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots[0].start).toBe("2026-11-09T17:00:00.000Z");
+});
+
+test("a blocking Booking removes its Slot", async () => {
+  const service = await serviceForShop();
+  expect((await book(service.handle)).status).toBe(201);
+  const slots = await (
+    await slotsLoader(
+      routeArgs(
+        proxyRequest("/proxy/slots", {
+          service: service.handle,
+          from: "2026-11-09T08:00:00Z",
+          to: "2026-11-10T08:00:00Z",
+        }),
+      ),
+    )
+  ).json();
+  expect(slots.slots.map((x: { start: string }) => x.start)).toEqual([
+    "2026-11-09T17:30:00.000Z",
+  ]);
 });
 
 test("a guest can omit optional contact fields", async () => {
@@ -365,3 +401,48 @@ test("missing, unpublished, and foreign Services cannot create Bookings", async 
   ).rejects.toMatchObject({ status: 404 });
   expect(fakeGoogle.writes).toEqual([]);
 });
+
+test("a logged-in customer's Booking stores the signed Shopify customer id; a body-supplied id is ignored", async () => {
+  const service = await serviceForShop();
+  const response = await book(
+    service.handle,
+    { customerId: "999" },
+    { logged_in_customer_id: "123" },
+  );
+  expect(response.status).toBe(201);
+  expect(fakeGoogle.events[0].extendedProperties?.private.customerId).toBe(
+    "123",
+  );
+});
+
+test("a guest Booking has no customer id", async () => {
+  const service = await serviceForShop();
+  await book(service.handle, { customerId: "999" });
+  expect(fakeGoogle.events[0].extendedProperties?.private).not.toHaveProperty(
+    "customerId",
+  );
+});
+
+test("a Booking from a product page records the Subject product id and title in the event", async () => {
+  const service = await serviceForShop();
+  const response = await book(service.handle, {
+    subjectProduct: { id: "7890", title: "1962 Strat" },
+  });
+  expect(response.status).toBe(201);
+  const event = fakeGoogle.events[0];
+  expect(event.description).toBe(
+    "Service: Lesson\nCustomer: Jane Doe\nPhone: 555-1234\nNotes: Bring guitar\nProduct: 1962 Strat",
+  );
+  expect(event.extendedProperties?.private.subjectProductId).toBe("7890");
+});
+
+test.each([{ id: "", title: "x" }, { id: "1", title: "x".repeat(501) }, "bad"])(
+  "invalid Subject product cannot write an event (case %#)",
+  async (subjectProduct) => {
+    const service = await serviceForShop();
+    await expect(
+      book(service.handle, { subjectProduct }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(fakeGoogle.writes).toEqual([]);
+  },
+);

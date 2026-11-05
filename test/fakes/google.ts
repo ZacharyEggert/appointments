@@ -100,17 +100,22 @@ export const googleHandlers = [
         e.calendarId === params.calendarId &&
         e.status !== "cancelled" &&
         Date.parse(e.end) > Date.parse(url.searchParams.get("timeMin")!) &&
-        Date.parse(e.start) < Date.parse(url.searchParams.get("timeMax")!),
+        Date.parse(e.start) <
+          Date.parse(url.searchParams.get("timeMax") ?? "9999-01-01") &&
+        url.searchParams.getAll("privateExtendedProperty").every((pair) => {
+          const [key, value] = pair.split("=");
+          return e.extendedProperties?.private[key] === value;
+        }),
     );
+    if (url.searchParams.get("orderBy") === "startTime")
+      events.sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
     const page = Number(url.searchParams.get("pageToken") ?? 0);
     return HttpResponse.json({
-      items: events
-        .slice(page, page + 1)
-        .map((e) => ({
-          ...e,
-          start: { dateTime: e.start },
-          end: { dateTime: e.end },
-        })),
+      items: events.slice(page, page + 1).map((e) => ({
+        ...e,
+        start: { dateTime: e.start },
+        end: { dateTime: e.end },
+      })),
       ...(page + 1 < events.length ? { nextPageToken: String(page + 1) } : {}),
     });
   }),

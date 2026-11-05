@@ -22,6 +22,9 @@ export interface GoogleEvent {
   id: string;
   created: string;
   status?: string;
+  description?: string;
+  attendees?: { email: string; displayName?: string }[];
+  extendedProperties?: { private?: Record<string, string> };
   transparency?: string;
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
@@ -79,6 +82,38 @@ export async function overlappingGoogleEvents(
     if (!Array.isArray(result.items))
       throw new Error("Invalid Google event list");
     events.push(...result.items);
+    pageToken = result.nextPageToken;
+  } while (pageToken);
+  return events;
+}
+
+export async function upcomingAppEvents(
+  shop: string,
+  calendarId: string,
+  from: Date,
+) {
+  const events: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    );
+    url.search = new URLSearchParams([
+      ["timeMin", from.toISOString()],
+      ["singleEvents", "true"],
+      ["orderBy", "startTime"],
+      ["showDeleted", "false"],
+      ["privateExtendedProperty", "app=appointments"],
+      ["privateExtendedProperty", `shop=${shop}`],
+      ...(pageToken ? [["pageToken", pageToken]] : []),
+    ]).toString();
+    const response = await googleFetch(shop, url);
+    if (!response.ok) throw new Error("Google event lookup failed");
+    const result = (await response.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+    };
+    events.push(...(result.items ?? []));
     pageToken = result.nextPageToken;
   } while (pageToken);
   return events;

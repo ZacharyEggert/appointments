@@ -139,9 +139,9 @@ export function proxyRequest(
 ) {
   const url = new URL(path, "https://app.test");
   url.search = new URLSearchParams({
+    logged_in_customer_id: "",
     ...query,
     shop,
-    logged_in_customer_id: "",
     path_prefix: "/apps/appointments",
     timestamp: String(Math.floor(Date.now() / 1000)),
   }).toString();
