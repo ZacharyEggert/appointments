@@ -16,6 +16,11 @@
     const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     // Keep requests on the storefront origin.
+    // Logged-in customers: Liquid sets data-customer-*; Guests leave them empty.
+    for (const field of ["name", "email"])
+      form.elements[field].value =
+        root.dataset[`customer${field[0].toUpperCase()}${field.slice(1)}`] ||
+        "";
     const proxyPath = root.dataset.proxy || "/apps/appointments";
 
     async function get(path, query, signal, body) {
@@ -156,6 +161,14 @@
             service: serviceInput.value,
             slotStart: selectedSlot.start,
             ...details,
+            ...(root.dataset.productId
+              ? {
+                  subjectProduct: {
+                    id: root.dataset.productId,
+                    title: root.dataset.productTitle,
+                  },
+                }
+              : {}),
           });
           if (lifecycle.signal.aborted) return;
           if (result.status === "confirmed") {

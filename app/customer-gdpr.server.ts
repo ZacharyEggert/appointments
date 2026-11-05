@@ -98,6 +98,7 @@ async function redactCustomer(shop: string, payload: CustomerPayload) {
           extendedProperties: { private: properties },
         },
         event.id,
+        false,
         { sendUpdates: "none" },
       );
     } catch (error) {

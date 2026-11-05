@@ -22,13 +22,28 @@ export interface GoogleEvent {
   id: string;
   created: string;
   status?: string;
+  description?: string;
+  attendees?: { email: string; displayName?: string }[];
+  extendedProperties?: { private?: Record<string, string> };
   transparency?: string;
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
   summary?: string;
-  description?: string;
-  attendees?: { email: string; displayName?: string }[];
-  extendedProperties?: { private?: Record<string, string> };
+}
+
+export async function getGoogleEvent(
+  shop: string,
+  calendarId: string,
+  eventId: string,
+): Promise<GoogleEvent | null> {
+  const response = await googleFetch(
+    shop,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+  );
+  if (response.status === 404 || response.status === 410) return null;
+  if (!response.ok) throw new Error("Google event lookup failed");
+  const event = (await response.json()) as GoogleEvent;
+  return event.status === "cancelled" ? null : event;
 }
 
 export async function writeGoogleEvent(
@@ -36,6 +51,7 @@ export async function writeGoogleEvent(
   calendarId: string,
   body: Record<string, unknown>,
   eventId?: string,
+  supportsConferenceData = Boolean(body.conferenceData),
   options?: { sendUpdates: "all" | "none" },
 ): Promise<GoogleEvent> {
   const url = new URL(
@@ -45,7 +61,8 @@ export async function writeGoogleEvent(
     "sendUpdates",
     options?.sendUpdates ?? (eventId ? "all" : "none"),
   );
-  url.searchParams.set("conferenceDataVersion", "1");
+  if (supportsConferenceData)
+    url.searchParams.set("conferenceDataVersion", "1");
   const response = await googleFetch(shop, url, {
     method: eventId ? "PATCH" : "POST",
     headers: {
@@ -122,14 +139,47 @@ export async function overlappingGoogleEvents(
   return events;
 }
 
+export async function upcomingAppEvents(
+  shop: string,
+  calendarId: string,
+  from: Date,
+) {
+  const events: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+    );
+    url.search = new URLSearchParams([
+      ["timeMin", from.toISOString()],
+      ["singleEvents", "true"],
+      ["orderBy", "startTime"],
+      ["showDeleted", "false"],
+      ["privateExtendedProperty", "app=appointments"],
+      ["privateExtendedProperty", `shop=${shop}`],
+      ...(pageToken ? [["pageToken", pageToken]] : []),
+    ]).toString();
+    const response = await googleFetch(shop, url);
+    if (!response.ok) throw new Error("Google event lookup failed");
+    const result = (await response.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+    };
+    events.push(...(result.items ?? []));
+    pageToken = result.nextPageToken;
+  } while (pageToken);
+  return events;
+}
+
 export async function deleteGoogleEvent(
   shop: string,
   calendarId: string,
   eventId: string,
+  sendUpdates: "none" | "all" = "none",
 ) {
   const response = await googleFetch(
     shop,
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=${sendUpdates}`,
     { method: "DELETE" },
   );
   if (!response.ok && response.status !== 404 && response.status !== 410)
