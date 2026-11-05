@@ -5,6 +5,7 @@ import { action as redactShop } from "../../app/routes/webhooks.shop.redact";
 import { loader as slotsLoader } from "../../app/routes/proxy.slots";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
+import db from "../../app/db.server";
 import { http, HttpResponse } from "msw";
 import { server } from "../setup";
 import {
@@ -319,6 +320,8 @@ test.each([
     for (let i = 0; i < 3; i++)
       expect((await book(service.handle)).status).toBe(201);
     expect((await book(service.handle)).status).toBe(429);
+    if (topic === "shop/redact")
+      await db.session.deleteMany({ where: { shop: SHOP } });
     expect((await cleanup(routeArgs(webhookRequest(topic)))).status).toBe(200);
     await installShop();
     const reinstalled = await serviceForShop({ blocking: "false" });

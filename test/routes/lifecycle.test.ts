@@ -7,6 +7,7 @@ import { loader as setup } from "../../app/routes/app._index";
 import { action as selectCalendar } from "../../app/routes/app.google.calendars";
 import { fakeGoogle } from "../fakes/google";
 import { fakeShopify } from "../fakes/shopify";
+import db from "../../app/db.server";
 import { server } from "../setup";
 import {
   callbackRequest,
@@ -108,6 +109,9 @@ test.each(webhooks)(
         return HttpResponse.json({});
       }),
     );
+    // shop/redact arrives after uninstall, when the Session is already gone.
+    if (topic === "shop/redact")
+      await db.session.deleteMany({ where: { shop: SHOP } });
     const request = webhookRequest(topic);
     expect((await action(routeArgs(request.clone()))).status).toBe(200);
     expect((await action(routeArgs(request.clone()))).status).toBe(200);
@@ -280,4 +284,19 @@ test("uninstall clears Google credentials, Resources, and pending consent before
   await expect(callback(callbackRequest(pendingState))).rejects.toMatchObject({
     status: 400,
   });
+});
+
+test("shop/redact does not wipe a reinstalled Shop that has a Session", async () => {
+  await installShop();
+  const state = await consentState();
+  fakeGoogle.grant();
+  await callback(callbackRequest(state));
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  expect(
+    (await redactShop(routeArgs(webhookRequest("shop/redact")))).status,
+  ).toBe(200);
+  expect(
+    await (await setup(routeArgs(adminRequest("/app")))).json(),
+  ).toMatchObject({ google: { status: "connected" } });
+  expect(fakeGoogle.revocations).toEqual([]);
 });
