@@ -3,6 +3,7 @@ import { emailHash } from "./customer-email.server";
 import {
   GoogleDisconnectedError,
   googleEventsByProperty,
+  isOwnEvent,
   writeGoogleEvent,
   type GoogleEvent,
 } from "./google-calendar.server";
@@ -55,9 +56,7 @@ async function customerBookings(shop: string, payload: CustomerPayload) {
         events.set(event.id, event);
     }
     for (const event of events.values()) {
-      const properties = event.extendedProperties?.private;
-      if (properties?.app === "appointments" && properties.shop === shop)
-        bookings.push({ calendarId, event });
+      if (isOwnEvent(event, shop)) bookings.push({ calendarId, event });
     }
   }
   return bookings;

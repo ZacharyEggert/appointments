@@ -101,15 +101,11 @@ export async function action({ request }: ActionFunctionArgs) {
   const customerId =
     new URL(request.url).searchParams.get("logged_in_customer_id") || undefined;
 
-  const result = await book(
-    session.shop,
-    service,
-    slotStart,
-    customer,
+  const result = await book(session.shop, service, slotStart, customer, {
     proxyPath,
     customerId,
     subject,
-  );
+  });
   return Response.json(result, {
     status:
       result.status === "confirmed"
