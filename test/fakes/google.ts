@@ -14,16 +14,26 @@ interface Grant {
   scope?: string;
 }
 
+interface FakeEvent {
+  calendarId: string;
+  start: string;
+  end: string;
+  transparency?: "opaque" | "transparent";
+  status?: "confirmed" | "cancelled";
+}
+
 export const fakeGoogle = {
   grants: new Map<string, Grant>(),
   tokens: new Map<string, Grant>(),
   refreshTokens: new Map<string, Grant>(),
   revocations: [] as string[],
+  events: [] as FakeEvent[],
   reset() {
     this.grants.clear();
     this.tokens.clear();
     this.refreshTokens.clear();
     this.revocations = [];
+    this.events = [];
   },
   grant(code = "google_code", options: Partial<Grant> = {}) {
     this.grants.set(code, {
@@ -43,6 +53,44 @@ export const fakeGoogle = {
 };
 
 export const googleHandlers = [
+  http.post(
+    "https://www.googleapis.com/calendar/v3/freeBusy",
+    async ({ request }) => {
+      const token =
+        request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+      const grant = fakeGoogle.tokens.get(token);
+      if (!grant)
+        return HttpResponse.json({ error: { code: 401 } }, { status: 401 });
+      const { timeMin, timeMax, items } = (await request.json()) as {
+        timeMin: string;
+        timeMax: string;
+        items: { id: string }[];
+      };
+      return HttpResponse.json({
+        timeMin,
+        timeMax,
+        calendars: Object.fromEntries(
+          items.map(({ id }) => [
+            id,
+            grant.calendars.some((calendar) => calendar.id === id)
+              ? {
+                  busy: fakeGoogle.events
+                    .filter(
+                      (event) =>
+                        event.calendarId === id &&
+                        event.transparency !== "transparent" &&
+                        event.status !== "cancelled" &&
+                        Date.parse(event.start) < Date.parse(timeMax) &&
+                        Date.parse(event.end) > Date.parse(timeMin),
+                    )
+                    .map(({ start, end }) => ({ start, end })),
+                }
+              : { errors: [{ domain: "global", reason: "notFound" }] },
+          ]),
+        ),
+      });
+    },
+  ),
   http.post("https://oauth2.googleapis.com/revoke", async ({ request }) => {
     const form = new URLSearchParams(await request.text());
     const token = form.get("token") ?? "";
