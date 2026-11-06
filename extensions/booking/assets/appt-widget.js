@@ -87,25 +87,26 @@
 					signal,
 				);
 				if (signal.aborted) return;
+				// en-US gives US abbreviations (PST, EST); other zones fall back to GMT±N.
 				const dateFormat = new Intl.DateTimeFormat("en-US", {
 					timeZone: result.timeZone,
 					year: "numeric",
 					month: "2-digit",
 					day: "2-digit",
+					timeZoneName: "short",
 				});
+				// Every listed Slot is on the picked date, so show only the time.
 				const timeFormat = new Intl.DateTimeFormat(undefined, {
 					timeZone: result.timeZone,
-					weekday: "short",
-					month: "short",
-					day: "numeric",
 					hour: "numeric",
 					minute: "2-digit",
-					timeZoneName: "shortOffset",
 				});
-				zone.textContent =
-					result.display === "browser"
-						? `Times shown in your timezone (${result.timeZone}).`
-						: `Times shown in the shop timezone (${result.timeZone}).`;
+				const abbr = dateFormat
+					.formatToParts(day + 432e5)
+					.find((part) => part.type === "timeZoneName").value;
+				zone.textContent = `Times shown in ${
+					result.display === "browser" ? "your" : "the shop"
+				} timezone (${abbr}).`;
 				const fragment = document.createDocumentFragment();
 				for (const slot of result.slots) {
 					const start = new Date(slot.start);

@@ -82,9 +82,14 @@
 }
 
 .appt-widget__slots {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
   gap: calc(var(--appt-gap) / 2);
+}
+
+.appt-widget__slots button {
+  text-align: center;
+  white-space: nowrap;
 }
 
 .appt-widget button {
