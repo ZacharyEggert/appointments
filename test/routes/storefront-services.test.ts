@@ -55,18 +55,21 @@ test("the storefront lists all published Services across pages with only public 
         name: "Lesson",
         description: "About Lesson",
         priceNote: "$40, paid in store",
+        durationMinutes: 30,
       },
       {
         handle: setup.handle,
         name: "Setup",
         description: "About Setup",
         priceNote: "$40, paid in store",
+        durationMinutes: 30,
       },
       {
         handle: dropoff.handle,
         name: "Drop-off",
         description: "About Drop-off",
         priceNote: "$40, paid in store",
+        durationMinutes: 30,
       },
     ],
   });
@@ -92,6 +95,7 @@ test("a block's handle list narrows published Services with exact matches", asyn
         name: "Lesson",
         description: "About Lesson",
         priceNote: "$40, paid in store",
+        durationMinutes: 30,
       },
     ],
   });

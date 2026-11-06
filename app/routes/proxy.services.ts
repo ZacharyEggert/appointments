@@ -25,11 +25,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
             service.status === "ACTIVE" &&
             (!handles.length || handles.includes(service.handle)),
         )
-        .map(({ handle, name, description, priceNote }) => ({
+        .map(({ handle, name, description, priceNote, slotRules }) => ({
           handle,
           name,
           description,
           priceNote,
+          durationMinutes: slotRules.durationMinutes,
         })),
     },
     { headers: { "Cache-Control": "no-store" } },

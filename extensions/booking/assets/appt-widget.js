@@ -60,7 +60,13 @@
 			dateInput.disabled = !service;
 			description.textContent = service?.description || "";
 			description.hidden = !description.textContent;
-			price.textContent = service?.priceNote || "";
+			// Meta line: "60 min · $40, paid in store".
+			price.textContent = [
+				service?.durationMinutes && service.durationMinutes + " min",
+				service?.priceNote,
+			]
+				.filter(Boolean)
+				.join(" · ");
 			price.hidden = !price.textContent;
 			if (!service || !dateInput.value) {
 				status.textContent =
@@ -104,9 +110,13 @@
 				const abbr = dateFormat
 					.formatToParts(day + 432e5)
 					.find((part) => part.type === "timeZoneName").value;
-				zone.textContent = `Times shown in ${
-					result.display === "browser" ? "your" : "the shop"
-				} timezone (${abbr}).`;
+				// Every Slot below is on this day; the heading carries date + zone.
+				zone.textContent = `${new Date(day).toLocaleDateString(undefined, {
+					timeZone: "UTC",
+					weekday: "long",
+					month: "long",
+					day: "numeric",
+				})} · ${abbr}`;
 				const fragment = document.createDocumentFragment();
 				for (const slot of result.slots) {
 					const start = new Date(slot.start);
@@ -121,10 +131,7 @@
 					const startTime = document.createElement("time");
 					startTime.dateTime = slot.start;
 					startTime.textContent = timeFormat.format(start);
-					const endTime = document.createElement("time");
-					endTime.dateTime = slot.end;
-					endTime.textContent = timeFormat.format(new Date(slot.end));
-					button.append(startTime, " – ", endTime);
+					button.append(startTime);
 					button.addEventListener("click", () => {
 						if (bookingPending) return;
 						for (const other of slots.querySelectorAll("button"))
@@ -210,7 +217,8 @@
 		serviceInput.replaceChildren(new Option("Choose a Service", ""));
 		serviceInput.disabled = true;
 		dateInput.disabled = true;
-		dateInput.value = "";
+		// Start on today (browser date) so a fixed Service shows times at once.
+		dateInput.min = dateInput.value = new Date().toLocaleDateString("en-CA");
 		slots.replaceChildren();
 		zone.textContent = "";
 		description.hidden = price.hidden = true;
